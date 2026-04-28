@@ -1,0 +1,294 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 300px;
+  background: #12101e;
+  color: #f0eeff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  padding-bottom: 8px;
+  user-select: none;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+.brand {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #a89cf7;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.icon-btn:hover { color: rgba(255,255,255,0.85); }
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Mode tabs ───────────────────────────────────────────────────────────── */
+
+.mode-tabs {
+  display: flex;
+  gap: 3px;
+  margin: 12px 14px 0;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.mode-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 6px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-tab.active {
+  background: #6c63ff;
+  color: white;
+}
+
+.mode-tab:hover:not(.active) {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.08);
+}
+
+/* ── Timer ring ──────────────────────────────────────────────────────────── */
+
+.timer-ring-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 18px auto 0;
+}
+
+.ring-svg {
+  width: 140px;
+  height: 140px;
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.08);
+  stroke-width: 6;
+}
+
+.ring-fg {
+  fill: none;
+  stroke: #6c63ff;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease, stroke 0.4s ease;
+}
+
+.ring-fg.break-mode  { stroke: #48cfad; }
+.ring-fg.long-mode   { stroke: #fc9d67; }
+
+.timer-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 0 16px;
+}
+
+.ctrl-btn {
+  cursor: pointer;
+  border: none;
+  transition: all 0.18s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ctrl-btn.primary {
+  background: #6c63ff;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border-radius: 50px;
+  padding: 10px 32px;
+  min-width: 110px;
+}
+
+.ctrl-btn.primary:hover { background: #7d75ff; transform: scale(1.02); }
+.ctrl-btn.primary:active { transform: scale(0.98); }
+
+.ctrl-btn.secondary {
+  background: rgba(255,255,255,0.07);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  color: rgba(255,255,255,0.55);
+}
+
+.ctrl-btn.secondary svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ctrl-btn.secondary:hover {
+  background: rgba(255,255,255,0.13);
+  color: rgba(255,255,255,0.9);
+}
+
+/* ── Sessions ────────────────────────────────────────────────────────────── */
+
+.sessions-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 0 16px;
+}
+
+.sessions-dots {
+  display: flex;
+  gap: 6px;
+  min-height: 10px;
+}
+
+.session-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+}
+
+.session-dot.filled {
+  background: #6c63ff;
+}
+
+.sessions-label {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: 0.04em;
+}
+
+/* ── Settings panel ──────────────────────────────────────────────────────── */
+
+.settings-panel {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+  margin: 16px 14px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.settings-panel.open { display: flex; }
+
+.settings-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+}
+
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.83rem;
+  color: rgba(255,255,255,0.7);
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-row input {
+  width: 52px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  color: white;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input-row input:focus {
+  border-color: #6c63ff;
+}
+
+.unit {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.35);
+}
+
+.save-btn {
+  background: #6c63ff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.save-btn:hover { background: #7d75ff; }

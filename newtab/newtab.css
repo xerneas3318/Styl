@@ -1,0 +1,308 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: #fff;
+  transition: background 4s ease;
+  background-size: 300% 300%;
+  animation: drift 25s ease infinite;
+}
+
+/* ── Time-of-day backgrounds ─────────────────────────────────────────────── */
+
+@keyframes drift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+body.morning {
+  background: linear-gradient(135deg, #f7971e, #ffd200, #e8733f, #f7971e);
+}
+body.afternoon {
+  background: linear-gradient(135deg, #4776e6, #8e54e9, #4776e6, #2c90cc);
+}
+body.evening {
+  background: linear-gradient(135deg, #c94b4b, #7b2d8b, #c94b4b, #e07b55);
+}
+body.night {
+  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e, #0f0c29);
+}
+
+/* ── Page layout ─────────────────────────────────────────────────────────── */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  text-align: center;
+  width: 90%;
+  max-width: 560px;
+  padding: 20px 0;
+}
+
+/* ── Hero clock ──────────────────────────────────────────────────────────── */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.clock {
+  font-size: clamp(4.5rem, 10vw, 7rem);
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 2px 30px rgba(0,0,0,0.25);
+}
+
+.date {
+  font-size: 1rem;
+  font-weight: 300;
+  opacity: 0.7;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.greeting {
+  font-size: 1.25rem;
+  font-weight: 400;
+  opacity: 0.88;
+}
+
+/* ── Daily focus input ───────────────────────────────────────────────────── */
+
+.focus-block {
+  width: 100%;
+  max-width: 420px;
+}
+
+.focus-label {
+  font-size: 0.7rem;
+  opacity: 0.55;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.focus-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 300;
+  text-align: center;
+  padding: 6px 0 8px;
+  outline: none;
+  transition: border-color 0.25s;
+  font-family: inherit;
+}
+
+.focus-input::placeholder {
+  color: rgba(255,255,255,0.3);
+}
+
+.focus-input:focus {
+  border-bottom-color: rgba(255,255,255,0.75);
+}
+
+/* ── Timer card ──────────────────────────────────────────────────────────── */
+
+.timer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: rgba(0,0,0,0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 24px;
+  padding: 22px 32px 20px;
+  min-width: 280px;
+}
+
+/* Mode tabs */
+.mode-tabs {
+  display: flex;
+  gap: 3px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.mode-tab {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-tab.active {
+  background: rgba(255,255,255,0.2);
+  color: white;
+}
+
+.mode-tab:hover:not(.active) {
+  color: rgba(255,255,255,0.82);
+}
+
+/* Ring */
+.ring-wrap {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.ring-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.1);
+  stroke-width: 7;
+}
+
+.ring-fg {
+  fill: none;
+  stroke: rgba(255,255,255,0.85);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.timer-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.4rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Controls */
+.timer-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.t-btn {
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.main-btn {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 50px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 11px 32px;
+  min-width: 110px;
+}
+
+.main-btn:hover {
+  background: rgba(255,255,255,0.32);
+  transform: scale(1.02);
+}
+
+.main-btn:active { transform: scale(0.98); }
+
+.icon-btn {
+  background: rgba(255,255,255,0.1);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  color: rgba(255,255,255,0.65);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-btn:hover {
+  background: rgba(255,255,255,0.2);
+  color: white;
+}
+
+/* Sessions */
+.sessions-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sessions-dots {
+  display: flex;
+  gap: 7px;
+  min-height: 10px;
+}
+
+.s-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transition: background 0.3s;
+}
+
+.s-dot.filled {
+  background: rgba(255,255,255,0.8);
+}
+
+.sessions-label {
+  font-size: 0.7rem;
+  opacity: 0.45;
+  letter-spacing: 0.05em;
+}
+
+/* ── Quote ───────────────────────────────────────────────────────────────── */
+
+.quote {
+  font-size: 0.82rem;
+  font-style: italic;
+  opacity: 0.5;
+  max-width: 400px;
+  line-height: 1.6;
+  text-align: center;
+  padding: 0 8px;
+}
