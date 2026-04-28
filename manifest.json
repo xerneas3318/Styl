@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "name": "Moments",
+  "version": "1.0.0",
+  "description": "A beautiful new tab with Pomodoro focus timer",
+  "permissions": [
+    "storage",
+    "notifications"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": "icons/icon.svg",
+    "default_title": "Moments"
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab/newtab.html"
+  },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  }
+}
