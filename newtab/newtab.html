@@ -44,8 +44,15 @@
           <circle class="ring-fg" id="progress-ring" cx="80" cy="80" r="68"
             stroke-dasharray="427.26" stroke-dashoffset="0"/>
         </svg>
-        <div class="timer-display" id="timer-display">25:00</div>
+        <div class="timer-display">
+          <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
+          <div class="time-editor hidden" id="time-editor">
+            <input type="number" id="time-edit" min="1" max="180" placeholder="25">
+            <span class="edit-unit">min</span>
+          </div>
+        </div>
       </div>
+      <div class="preset-bar hidden" id="preset-bar"></div>
 
       <div class="timer-controls">
         <button class="t-btn icon-btn" id="reset-btn" title="Reset">

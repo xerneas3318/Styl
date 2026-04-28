@@ -198,16 +198,97 @@ body.night {
   transition: stroke-dashoffset 0.6s ease;
 }
 
+.hidden { display: none !important; }
+
 .timer-display {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Clickable time readout */
+.time-text {
   font-size: 2.4rem;
   font-weight: 300;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  padding-bottom: 1px;
+  transition: border-color 0.2s, opacity 0.15s;
+}
+
+.time-text:hover {
+  border-bottom-color: rgba(255,255,255,0.45);
+}
+
+/* Inline edit inside ring */
+.time-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-editor input {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(255,255,255,0.7);
+  color: white;
+  font-size: 2.2rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+  width: 90px;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.time-editor input::-webkit-outer-spin-button,
+.time-editor input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+.edit-unit {
+  font-size: 0.6rem;
+  opacity: 0.45;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Preset chips */
+.preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.preset-chip {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.7);
+  font-size: 0.75rem;
+  font-family: inherit;
+  padding: 5px 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-chip:hover {
+  background: rgba(255,255,255,0.2);
+  color: white;
+}
+
+.preset-chip.active {
+  background: rgba(255,255,255,0.22);
+  border-color: rgba(255,255,255,0.6);
+  color: white;
+  font-weight: 600;
 }
 
 /* Controls */

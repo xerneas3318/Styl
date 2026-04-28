@@ -9,12 +9,6 @@
 <body>
   <header class="header">
     <span class="brand">Moments</span>
-    <button class="icon-btn" id="settings-toggle" title="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-    </button>
   </header>
 
   <!-- Mode tabs -->
@@ -31,8 +25,15 @@
       <circle class="ring-fg" id="progress-ring" cx="60" cy="60" r="52"
         stroke-dasharray="326.73" stroke-dashoffset="0"/>
     </svg>
-    <div class="timer-display" id="timer-display">25:00</div>
+    <div class="timer-display">
+      <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
+      <div class="time-editor hidden" id="time-editor">
+        <input type="number" id="time-edit" min="1" max="180" placeholder="25">
+        <span class="edit-unit">min</span>
+      </div>
+    </div>
   </div>
+  <div class="preset-bar hidden" id="preset-bar"></div>
 
   <!-- Controls -->
   <div class="controls">
@@ -57,36 +58,8 @@
     <span class="sessions-label" id="sessions-label">0 sessions today</span>
   </div>
 
-  <!-- Settings panel -->
-  <div class="settings-panel" id="settings-panel">
-    <h3 class="settings-title">Timer Durations</h3>
-    <div class="settings-grid">
-      <label>
-        <span>Focus</span>
-        <div class="input-row">
-          <input type="number" id="focus-input" min="1" max="99" value="25">
-          <span class="unit">min</span>
-        </div>
-      </label>
-      <label>
-        <span>Short Break</span>
-        <div class="input-row">
-          <input type="number" id="break-input" min="1" max="99" value="5">
-          <span class="unit">min</span>
-        </div>
-      </label>
-      <label>
-        <span>Long Break</span>
-        <div class="input-row">
-          <input type="number" id="long-break-input" min="1" max="99" value="15">
-          <span class="unit">min</span>
-        </div>
-      </label>
-    </div>
-    <button class="save-btn" id="save-btn">Save</button>
-  </div>
 
-  <script src="../shared/sound.js"></script>
+<script src="../shared/sound.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

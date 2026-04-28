@@ -4,12 +4,14 @@
   padding: 0;
 }
 
+.hidden { display: none !important; }
+
 body {
   width: 300px;
   background: #12101e;
   color: #f0eeff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  padding-bottom: 8px;
+  padding-bottom: 12px;
   user-select: none;
 }
 
@@ -18,35 +20,17 @@ body {
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   padding: 14px 16px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
 .brand {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: #a89cf7;
-}
-
-.icon-btn {
-  background: transparent;
-  border: none;
-  color: rgba(255,255,255,0.45);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  transition: color 0.15s;
-}
-
-.icon-btn:hover { color: rgba(255,255,255,0.85); }
-
-.icon-btn svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* ── Mode tabs ───────────────────────────────────────────────────────────── */
@@ -113,8 +97,8 @@ body {
   transition: stroke-dashoffset 0.6s ease, stroke 0.4s ease;
 }
 
-.ring-fg.break-mode  { stroke: #48cfad; }
-.ring-fg.long-mode   { stroke: #fc9d67; }
+.ring-fg.break-mode { stroke: #48cfad; }
+.ring-fg.long-mode  { stroke: #fc9d67; }
 
 .timer-display {
   position: absolute;
@@ -122,10 +106,94 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ── Time text (clickable) ───────────────────────────────────────────────── */
+
+.time-text {
   font-size: 2rem;
   font-weight: 300;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  padding-bottom: 1px;
+  transition: border-color 0.2s, opacity 0.15s;
+}
+
+.time-text:hover {
+  border-bottom-color: rgba(255,255,255,0.4);
+}
+
+/* ── Edit mode inside ring ───────────────────────────────────────────────── */
+
+.time-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.time-editor input {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(255,255,255,0.7);
+  color: white;
+  font-size: 1.85rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+  width: 70px;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.time-editor input::-webkit-outer-spin-button,
+.time-editor input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+.edit-unit {
+  font-size: 0.58rem;
+  opacity: 0.45;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* ── Preset chips ────────────────────────────────────────────────────────── */
+
+.preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+  padding: 0 12px;
+  margin-top: 8px;
+}
+
+.preset-chip {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.65);
+  font-size: 0.7rem;
+  font-family: inherit;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-chip:hover {
+  background: rgba(255,255,255,0.16);
+  color: white;
+}
+
+.preset-chip.active {
+  background: rgba(108,99,255,0.35);
+  border-color: rgba(108,99,255,0.7);
+  color: white;
+  font-weight: 600;
 }
 
 /* ── Controls ────────────────────────────────────────────────────────────── */
@@ -135,7 +203,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 16px;
   padding: 0 16px;
 }
 
@@ -159,7 +227,7 @@ body {
   min-width: 110px;
 }
 
-.ctrl-btn.primary:hover { background: #7d75ff; transform: scale(1.02); }
+.ctrl-btn.primary:hover  { background: #7d75ff; transform: scale(1.02); }
 .ctrl-btn.primary:active { transform: scale(0.98); }
 
 .ctrl-btn.secondary {
@@ -170,10 +238,7 @@ body {
   color: rgba(255,255,255,0.55);
 }
 
-.ctrl-btn.secondary svg {
-  width: 15px;
-  height: 15px;
-}
+.ctrl-btn.secondary svg { width: 15px; height: 15px; }
 
 .ctrl-btn.secondary:hover {
   background: rgba(255,255,255,0.13);
@@ -187,8 +252,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  margin-top: 16px;
-  padding: 0 16px;
+  margin-top: 14px;
 }
 
 .sessions-dots {
@@ -204,91 +268,10 @@ body {
   background: rgba(255,255,255,0.15);
 }
 
-.session-dot.filled {
-  background: #6c63ff;
-}
+.session-dot.filled { background: #6c63ff; }
 
 .sessions-label {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.3);
   letter-spacing: 0.04em;
 }
-
-/* ── Settings panel ──────────────────────────────────────────────────────── */
-
-.settings-panel {
-  display: none;
-  flex-direction: column;
-  gap: 14px;
-  margin: 16px 14px 8px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 16px;
-}
-
-.settings-panel.open { display: flex; }
-
-.settings-title {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.4);
-}
-
-.settings-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.settings-grid label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.83rem;
-  color: rgba(255,255,255,0.7);
-}
-
-.input-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.input-row input {
-  width: 52px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 7px;
-  color: white;
-  font-size: 0.85rem;
-  text-align: center;
-  padding: 5px 8px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.input-row input:focus {
-  border-color: #6c63ff;
-}
-
-.unit {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
-}
-
-.save-btn {
-  background: #6c63ff;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.save-btn:hover { background: #7d75ff; }

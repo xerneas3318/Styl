@@ -1,7 +1,12 @@
 // Moments new tab controller
-// Renders the clock, handles timer display, and connects to the background.
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 68; // r=68 ≈ 427.26
+
+const PRESETS = {
+  focus:     [15, 20, 25, 30, 45, 60, 90],
+  break:     [5, 10, 15],
+  longBreak: [10, 15, 20, 25, 30],
+};
 
 const QUOTES = [
   "The secret of getting ahead is getting started.",
@@ -30,8 +35,9 @@ const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Sat
 const MONTHS = ['January','February','March','April','May','June',
                 'July','August','September','October','November','December'];
 
-let port  = null;
-let state = null;
+let port      = null;
+let state     = null;
+let isEditing = false;
 
 // ── Clock & greeting ──────────────────────────────────────────────────────────
 
@@ -49,51 +55,37 @@ function updateClock() {
     `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
 
   const greeting =
-    h >= 5  && h < 12 ? 'Good morning' :
+    h >= 5  && h < 12 ? 'Good morning'   :
     h >= 12 && h < 17 ? 'Good afternoon' :
-    h >= 17 && h < 21 ? 'Good evening' :
+    h >= 17 && h < 21 ? 'Good evening'   :
                         'Good night';
   document.getElementById('greeting').textContent = greeting;
 
-  // Background class
   const cls =
     h >= 5  && h < 12 ? 'morning'   :
     h >= 12 && h < 17 ? 'afternoon' :
     h >= 17 && h < 21 ? 'evening'   :
                         'night';
-
-  if (!document.body.classList.contains(cls)) {
-    document.body.className = cls;
-  }
+  if (!document.body.classList.contains(cls)) document.body.className = cls;
 }
 
-// Align tick to the next full second boundary
 function startClock() {
   updateClock();
   const ms = 1000 - (Date.now() % 1000);
-  setTimeout(() => {
-    updateClock();
-    setInterval(updateClock, 1000);
-  }, ms);
+  setTimeout(() => { updateClock(); setInterval(updateClock, 1000); }, ms);
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
 function connect() {
   port = browser.runtime.connect({ name: 'newtab' });
-
   port.onMessage.addListener((msg) => {
     if (msg.type !== 'stateUpdate') return;
     state = msg.state;
     renderTimer();
-    if (msg.event === 'timerComplete') {
-      playChime();
-    }
+    if (msg.event === 'timerComplete') playChime();
   });
-
-  port.onDisconnect.addListener(() => {
-    setTimeout(connect, 300);
-  });
+  port.onDisconnect.addListener(() => setTimeout(connect, 300));
 }
 
 // ── Timer rendering ───────────────────────────────────────────────────────────
@@ -117,26 +109,22 @@ function totalFor(mode) {
 function renderTimer() {
   if (!state) return;
 
-  // Mode tabs
-  document.querySelectorAll('.mode-tab').forEach((tab) => {
-    tab.classList.toggle('active', tab.dataset.mode === state.mode);
-  });
+  document.querySelectorAll('.mode-tab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.mode === state.mode));
 
-  // Countdown
-  document.getElementById('timer-display').textContent = fmt(state.timeRemaining);
+  if (!isEditing) {
+    document.getElementById('time-text').textContent = fmt(state.timeRemaining);
+  }
 
-  // Progress ring
   const total    = totalFor(state.mode);
   const progress = state.timeRemaining / total;
   const offset   = (1 - progress) * RING_CIRCUMFERENCE;
   document.getElementById('progress-ring').style.strokeDashoffset = offset;
 
-  // Start/Pause
   document.getElementById('start-pause-btn').textContent =
     state.isRunning ? 'Pause' : 'Start';
 
-  // Session dots
-  const dots    = document.getElementById('sessions-dots');
+  const dots = document.getElementById('sessions-dots');
   dots.innerHTML = '';
   const cyclePos = state.sessionsCompleted % 4;
   for (let i = 0; i < 4; i++) {
@@ -144,17 +132,92 @@ function renderTimer() {
     dot.className = 's-dot' + (i < cyclePos ? ' filled' : '');
     dots.appendChild(dot);
   }
-
   document.getElementById('sessions-label').textContent =
     `${state.sessionsCompleted} session${state.sessionsCompleted !== 1 ? 's' : ''} completed`;
 }
 
-// ── Event listeners ───────────────────────────────────────────────────────────
+// ── Edit mode ─────────────────────────────────────────────────────────────────
+
+function enterEditMode() {
+  if (isEditing) return;
+  isEditing = true;
+
+  if (state?.isRunning) port.postMessage({ type: 'pause' });
+
+  const mode    = state?.mode || 'focus';
+  const minutes = Math.round(totalFor(mode) / 60);
+
+  document.getElementById('time-text').classList.add('hidden');
+  document.getElementById('time-editor').classList.remove('hidden');
+  const input = document.getElementById('time-edit');
+  input.value = minutes;
+  input.focus();
+  input.select();
+
+  buildPresets(mode, minutes);
+  document.getElementById('preset-bar').classList.remove('hidden');
+}
+
+function exitEditMode(save = true) {
+  if (!isEditing) return;
+  isEditing = false;
+
+  if (save) {
+    const raw     = parseInt(document.getElementById('time-edit').value, 10);
+    const minutes = isNaN(raw) ? null : Math.min(Math.max(raw, 1), 180);
+    if (minutes) saveMinutes(minutes);
+  }
+
+  document.getElementById('time-text').classList.remove('hidden');
+  document.getElementById('time-editor').classList.add('hidden');
+  document.getElementById('preset-bar').classList.add('hidden');
+}
+
+function saveMinutes(minutes) {
+  const secs = minutes * 60;
+  const mode  = state?.mode || 'focus';
+  port.postMessage({
+    type:              'updateSettings',
+    focusDuration:     mode === 'focus'     ? secs : state.focusDuration,
+    breakDuration:     mode === 'break'     ? secs : state.breakDuration,
+    longBreakDuration: mode === 'longBreak' ? secs : state.longBreakDuration,
+  });
+}
+
+function buildPresets(mode, currentMinutes) {
+  const bar = document.getElementById('preset-bar');
+  bar.innerHTML = '';
+  (PRESETS[mode] || PRESETS.focus).forEach((val) => {
+    const chip = document.createElement('button');
+    chip.className = 'preset-chip' + (val === currentMinutes ? ' active' : '');
+    chip.textContent = `${val}m`;
+    chip.addEventListener('mousedown', (e) => e.preventDefault());
+    chip.addEventListener('click', () => applyPreset(val));
+    bar.appendChild(chip);
+  });
+}
+
+function applyPreset(val) {
+  document.getElementById('time-edit').value = val;
+  exitEditMode(true);
+}
+
+// ── Event wiring ──────────────────────────────────────────────────────────────
+
+document.getElementById('time-text').addEventListener('click', enterEditMode);
+
+document.getElementById('time-edit').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); exitEditMode(true); }
+  if (e.key === 'Escape') exitEditMode(false);
+});
+
+document.getElementById('time-edit').addEventListener('blur', () => {
+  setTimeout(() => { if (isEditing) exitEditMode(true); }, 150);
+});
 
 document.querySelectorAll('.mode-tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    port.postMessage({ type: 'setMode', mode: tab.dataset.mode });
-  });
+  tab.addEventListener('click', () =>
+    port.postMessage({ type: 'setMode', mode: tab.dataset.mode }));
 });
 
 document.getElementById('start-pause-btn').addEventListener('click', () => {
@@ -162,13 +225,11 @@ document.getElementById('start-pause-btn').addEventListener('click', () => {
   port.postMessage({ type: state.isRunning ? 'pause' : 'start' });
 });
 
-document.getElementById('reset-btn').addEventListener('click', () => {
-  port.postMessage({ type: 'reset' });
-});
+document.getElementById('reset-btn').addEventListener('click', () =>
+  port.postMessage({ type: 'reset' }));
 
-document.getElementById('skip-btn').addEventListener('click', () => {
-  port.postMessage({ type: 'skip' });
-});
+document.getElementById('skip-btn').addEventListener('click', () =>
+  port.postMessage({ type: 'skip' }));
 
 // ── Daily focus (persisted in localStorage) ───────────────────────────────────
 
@@ -176,10 +237,9 @@ const focusInput = document.getElementById('focus-input');
 
 function loadDailyFocus() {
   const today    = new Date().toDateString();
-  const saved    = localStorage.getItem('moments_focus_date');
+  const savedDay = localStorage.getItem('moments_focus_date');
   const savedVal = localStorage.getItem('moments_focus_text');
-
-  if (saved === today && savedVal) {
+  if (savedDay === today && savedVal) {
     focusInput.value = savedVal;
   } else {
     localStorage.removeItem('moments_focus_text');
@@ -187,16 +247,14 @@ function loadDailyFocus() {
   }
 }
 
-focusInput.addEventListener('input', () => {
-  localStorage.setItem('moments_focus_text', focusInput.value);
-});
+focusInput.addEventListener('input', () =>
+  localStorage.setItem('moments_focus_text', focusInput.value));
 
 // ── Quote ─────────────────────────────────────────────────────────────────────
 
 function loadQuote() {
-  // Rotate daily
-  const dayIndex = Math.floor(Date.now() / 86400000) % QUOTES.length;
-  document.getElementById('quote').textContent = `"${QUOTES[dayIndex]}"`;
+  const idx = Math.floor(Date.now() / 86400000) % QUOTES.length;
+  document.getElementById('quote').textContent = `"${QUOTES[idx]}"`;
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
