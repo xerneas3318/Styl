@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Styl — Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<div class="settings-page">
+
+  <div class="settings-header">
+    <span class="brand">Styl</span>
+    <span class="settings-title">Settings</span>
+  </div>
+
+  <!-- Tab nav -->
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="ai">AI</button>
+    <button class="tab-btn" data-tab="github">GitHub</button>
+    <button class="tab-btn" data-tab="google">Google</button>
+    <button class="tab-btn" data-tab="timer">Timer</button>
+    <button class="tab-btn" data-tab="history">History</button>
+  </div>
+
+  <!-- Status message -->
+  <div class="status-msg hidden" id="status-msg"></div>
+
+  <!-- ── AI tab ───────────────────────────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-ai">
+    <div class="section-label">AI Provider</div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-provider">Provider</label>
+      <select id="ai-provider" class="field-select">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+      </select>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-key">API Key</label>
+      <input id="ai-key" type="password" class="field-input" placeholder="sk-ant-… or sk-…" autocomplete="off">
+      <div class="field-hint">Stored locally only. Never sent to GitHub.</div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-model">Model <span class="optional">(optional)</span></label>
+      <input id="ai-model" type="text" class="field-input" placeholder="e.g. claude-haiku-4-5-20251001">
+      <div class="field-hint">Leave blank for the default fast model.</div>
+    </div>
+
+    <div class="field-group row">
+      <label class="field-label" for="auto-approve">Auto-approve AI changes</label>
+      <label class="toggle">
+        <input type="checkbox" id="auto-approve">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+    </div>
+    <div class="field-hint indent">When off, changes require your approval before applying.</div>
+  </div>
+
+  <!-- ── GitHub tab ───────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-github">
+    <div class="section-label">GitHub Storage</div>
+    <div class="field-hint" style="margin-bottom:14px">
+      All task and memory data is stored in your private GitHub repo.
+      Create one at github.com/new — set it to private.
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="gh-owner">Owner (username)</label>
+      <input id="gh-owner" type="text" class="field-input" placeholder="your-github-username" autocomplete="off">
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="gh-repo">Repository name</label>
+      <input id="gh-repo" type="text" class="field-input" placeholder="styl-data" autocomplete="off">
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="gh-token">Personal Access Token</label>
+      <input id="gh-token" type="password" class="field-input" placeholder="ghp_…" autocomplete="off">
+      <div class="field-hint">Needs repo read/write scope. Stored locally only.</div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="gh-branch">Branch</label>
+      <input id="gh-branch" type="text" class="field-input" placeholder="main" autocomplete="off">
+    </div>
+
+    <button class="btn-secondary" id="test-github-btn">Test connection</button>
+  </div>
+
+  <!-- ── Google tab ───────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-google">
+    <div class="section-label">Google Integration</div>
+    <div class="field-hint" style="margin-bottom:14px">
+      Connect Gmail to extract tasks from emails.<br>
+      Connect Calendar to create events via AI.
+    </div>
+
+    <div class="google-status-row">
+      <div class="google-status-label">Status</div>
+      <div class="google-status-val" id="google-status">Not connected</div>
+    </div>
+
+    <div class="field-group" style="margin-top:14px">
+      <label class="field-label" for="google-client-id">OAuth Client ID <span class="optional">(optional)</span></label>
+      <input id="google-client-id" type="text" class="field-input" placeholder="your-client-id.apps.googleusercontent.com" autocomplete="off">
+      <div class="field-hint">Only needed if you set up your own Google Cloud project.</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-primary"   id="connect-google-btn">Connect Google</button>
+      <button class="btn-secondary" id="disconnect-google-btn">Disconnect</button>
+    </div>
+  </div>
+
+  <!-- ── Timer tab ────────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-timer">
+    <div class="section-label">Timer Defaults</div>
+
+    <div class="field-group">
+      <label class="field-label" for="focus-dur">Focus duration (minutes)</label>
+      <input id="focus-dur" type="number" class="field-input narrow" min="1" max="180" value="25">
+    </div>
+    <div class="field-group">
+      <label class="field-label" for="break-dur">Short break (minutes)</label>
+      <input id="break-dur" type="number" class="field-input narrow" min="1" max="60" value="5">
+    </div>
+    <div class="field-group">
+      <label class="field-label" for="long-break-dur">Long break (minutes)</label>
+      <input id="long-break-dur" type="number" class="field-input narrow" min="1" max="90" value="15">
+    </div>
+  </div>
+
+  <!-- ── History tab ──────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-history">
+    <div class="section-label">Snapshot History</div>
+    <div class="field-hint" style="margin-bottom:12px">
+      Every AI action creates a snapshot. Revert to any point in time.
+    </div>
+    <div class="snapshot-list" id="snapshot-list">
+      <div class="snap-empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Save button (always visible) -->
+  <div class="settings-footer">
+    <button class="btn-primary" id="save-btn">Save settings</button>
+  </div>
+
+</div>
+
+<script src="../dist/settings.js"></script>
+</body>
+</html>

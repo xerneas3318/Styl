@@ -9,12 +9,23 @@
 <body>
   <header class="header">
     <span class="brand">Styl</span>
-    <button class="shield-btn" id="shield-btn" title="Block sites during focus">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-    </button>
+    <div class="header-actions">
+      <button class="shield-btn" id="shield-btn" title="Block sites during focus">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </button>
+      <button class="settings-link" id="settings-link" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
   </header>
+
+  <!-- AI status bar -->
+  <div class="ai-status hidden" id="ai-status"></div>
 
   <!-- ── Timer view ─────────────────────────────────────────────────────── -->
   <div id="timer-view">
@@ -80,11 +91,10 @@
       <span class="bp-title">Block Sites</span>
     </div>
 
-    <!-- Master toggle -->
     <div class="bp-toggle-row">
       <div>
         <div class="bp-toggle-label">Block during focus</div>
-        <div class="bp-toggle-sub">Only active while the timer is running</div>
+        <div class="bp-toggle-sub">Only active while timer is running</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="block-enabled" checked>
@@ -92,7 +102,6 @@
       </label>
     </div>
 
-    <!-- Preset categories -->
     <div class="bp-section">
       <div class="bp-section-label">Presets</div>
       <div class="bp-preset-row">
@@ -102,7 +111,6 @@
       </div>
     </div>
 
-    <!-- Site list -->
     <div class="bp-section">
       <div class="bp-section-label">Blocked Sites</div>
       <div class="bp-site-list" id="bp-site-list"></div>
@@ -116,6 +124,6 @@
   </div><!-- /block-panel -->
 
   <script src="../shared/sound.js"></script>
-  <script src="popup.js"></script>
+  <script src="../dist/popup.js"></script>
 </body>
 </html>

@@ -1,29 +1,45 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Styl",
-  "version": "1.0.0",
-  "description": "A beautiful new tab with Pomodoro focus timer — by xerneas",
+  "version": "2.0.0",
+  "description": "Personal operating system for your browser",
+
   "permissions": [
     "storage",
+    "alarms",
     "notifications",
+    "identity",
     "webRequest",
-    "webRequestBlocking",
-    "<all_urls>"
+    "webRequestBlocking"
   ],
+  "host_permissions": ["<all_urls>"],
+
   "background": {
-    "scripts": ["shared/sound.js", "background.js"],
-    "persistent": true
+    "scripts": ["dist/background.js"],
+    "persistent": false
   },
-  "browser_action": {
+
+  "action": {
     "default_popup": "popup/popup.html",
-    "default_icon": "icons/icon.svg",
-    "default_title": "Styl"
+    "default_icon": {
+      "48": "icons/icon.svg",
+      "96": "icons/icon.svg"
+    }
   },
+
   "chrome_url_overrides": {
     "newtab": "newtab/newtab.html"
   },
+
   "icons": {
     "48": "icons/icon.svg",
     "96": "icons/icon.svg"
-  }
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked/blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
