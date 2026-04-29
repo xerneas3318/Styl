@@ -95,25 +95,63 @@
   <!-- ── Google tab ───────────────────────────────────────────────────────── -->
   <div class="tab-panel hidden" id="tab-google">
     <div class="section-label">Google Integration</div>
-    <div class="field-hint" style="margin-bottom:14px">
-      Connect Gmail to extract tasks from emails.<br>
-      Connect Calendar to create events via AI.
+
+    <div class="oauth-steps">
+      <div class="oauth-step">
+        <span class="step-num">1</span>
+        <div>
+          Open
+          <a class="ext-link" href="https://developers.google.com/oauthplayground" target="_blank">
+            Google OAuth Playground
+          </a>
+        </div>
+      </div>
+      <div class="oauth-step">
+        <span class="step-num">2</span>
+        <div>
+          In the right panel → click the gear icon → check
+          <strong>"Use your own OAuth credentials"</strong> is <em>off</em>
+          (use Google's default).
+        </div>
+      </div>
+      <div class="oauth-step">
+        <span class="step-num">3</span>
+        <div>
+          In the left panel, find and select these scopes, then click
+          <strong>Authorize APIs</strong>:
+          <ul class="scope-list">
+            <li>Gmail API v1 → <code>…/auth/gmail.readonly</code></li>
+            <li>Calendar API v3 → <code>…/auth/calendar</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="oauth-step">
+        <span class="step-num">4</span>
+        <div>
+          Click <strong>Exchange authorization code for tokens</strong> →
+          copy the <strong>Access token</strong> value.
+        </div>
+      </div>
+      <div class="oauth-step">
+        <span class="step-num">5</span>
+        <div>Paste it below and Save. Tokens expire in ~1 hour — repeat when needed.</div>
+      </div>
     </div>
 
-    <div class="google-status-row">
+    <div class="google-status-row" style="margin-top:14px">
       <div class="google-status-label">Status</div>
       <div class="google-status-val" id="google-status">Not connected</div>
     </div>
 
     <div class="field-group" style="margin-top:14px">
-      <label class="field-label" for="google-client-id">OAuth Client ID <span class="optional">(optional)</span></label>
-      <input id="google-client-id" type="text" class="field-input" placeholder="your-client-id.apps.googleusercontent.com" autocomplete="off">
-      <div class="field-hint">Only needed if you set up your own Google Cloud project.</div>
+      <label class="field-label" for="google-token">Access Token</label>
+      <input id="google-token" type="password" class="field-input"
+             placeholder="ya29.…" autocomplete="off">
+      <div class="field-hint">Stored locally only. Never sent to GitHub.</div>
     </div>
 
     <div class="btn-row">
-      <button class="btn-primary"   id="connect-google-btn">Connect Google</button>
-      <button class="btn-secondary" id="disconnect-google-btn">Disconnect</button>
+      <button class="btn-secondary" id="disconnect-google-btn">Clear token</button>
     </div>
   </div>
 

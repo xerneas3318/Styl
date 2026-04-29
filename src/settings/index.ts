@@ -41,11 +41,12 @@ function populateForm() {
   setVal('break-dur',      String(Math.round((settings.breakDuration    ?? 5  * 60) / 60)));
   setVal('long-break-dur', String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
 
-  // Google status
+  // Google — show masked token and status
   const gStatus = document.getElementById('google-status') as HTMLElement;
-  gStatus.textContent = settings.google?.accessToken
-    ? `Connected (token expires ${settings.google.tokenExpiry ? new Date(settings.google.tokenExpiry).toLocaleDateString() : 'unknown'})`
-    : 'Not connected';
+  const tok = settings.google?.accessToken;
+  gStatus.textContent = tok ? `Token set (${tok.slice(0, 8)}…)` : 'Not connected';
+  // Don't pre-fill the password field for security — leave blank so user only re-enters when changing
+  setVal('google-token', '');
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ function collectSettings(): AppSettings {
       apiKey: getVal('ai-key'),
       model:  getVal('ai-model') || defaultModel(provider),
     },
-    google:          settings.google ?? null,
+    google:          collectGoogle(),
     autoApproveAI:   getCheck('auto-approve'),
     focusDuration:   parseInt(getVal('focus-dur'),      10) * 60 || 25 * 60,
     breakDuration:   parseInt(getVal('break-dur'),      10) * 60 || 5  * 60,
@@ -109,51 +110,29 @@ async function testGitHub() {
   }
 }
 
-// ── Google OAuth ──────────────────────────────────────────────────────────────
+// ── Google token (paste from OAuth Playground) ───────────────────────────────
 
-function connectGoogle() {
-  // Use browser.identity.launchWebAuthFlow
-  const redirectUri = browser.identity.getRedirectURL();
-  const params = new URLSearchParams({
-    client_id:    getVal('google-client-id') || 'YOUR_CLIENT_ID',
-    redirect_uri: redirectUri,
-    response_type: 'token',
-    scope: [
-      'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/calendar',
-    ].join(' '),
-    include_granted_scopes: 'true',
-  });
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-
-  browser.identity.launchWebAuthFlow({ url: authUrl, interactive: true })
-    .then((redirectUrl) => {
-      if (!redirectUrl) { showStatus('Google auth failed.', true); return; }
-      const hash   = new URL(redirectUrl).hash.slice(1);
-      const urlp   = new URLSearchParams(hash);
-      const token  = urlp.get('access_token');
-      const expiry = parseInt(urlp.get('expires_in') ?? '3600', 10) * 1000 + Date.now();
-      if (!token) { showStatus('No token received.', true); return; }
-
-      settings.google = {
-        accessToken:     token,
-        tokenExpiry:     expiry,
-        gmailEnabled:    true,
-        calendarEnabled: true,
-      };
-      Storage.setSettings(settings).then(() => {
-        populateForm();
-        showStatus('Google connected!', false);
-      });
-    })
-    .catch((e) => showStatus(`OAuth error: ${(e as Error).message}`, true));
+function collectGoogle(): AppSettings['google'] {
+  const raw = getVal('google-token');
+  if (raw) {
+    // User pasted a new token
+    return {
+      accessToken:     raw,
+      tokenExpiry:     Date.now() + 3600 * 1000, // assume 1h; refresh when expired
+      gmailEnabled:    true,
+      calendarEnabled: true,
+    };
+  }
+  // Keep existing token if field was left blank
+  return settings.google ?? null;
 }
 
 function disconnectGoogle() {
   settings.google = null;
+  setVal('google-token', '');
   Storage.setSettings(settings).then(() => {
     populateForm();
-    showStatus('Google disconnected.', false);
+    showStatus('Google token cleared.', false);
   });
 }
 
@@ -241,7 +220,6 @@ function initTabs() {
 
 document.getElementById('save-btn')!.addEventListener('click', save);
 document.getElementById('test-github-btn')!.addEventListener('click', testGitHub);
-document.getElementById('connect-google-btn')!.addEventListener('click', connectGoogle);
 document.getElementById('disconnect-google-btn')!.addEventListener('click', disconnectGoogle);
 document.getElementById('ai-provider')!.addEventListener('change', updateModelPlaceholder);
 

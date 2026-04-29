@@ -202,6 +202,66 @@ body {
   margin-top: 14px;
 }
 
+/* ── OAuth steps ─────────────────────────────────────────────────────────────── */
+.oauth-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.oauth-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.65);
+  line-height: 1.5;
+}
+
+.step-num {
+  background: rgba(108,99,255,0.3);
+  color: #c4bfff;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.oauth-step strong { color: rgba(255,255,255,0.88); }
+.oauth-step em     { color: rgba(255,255,255,0.5); font-style: normal; }
+
+.ext-link {
+  color: #a89cf7;
+  text-decoration: none;
+}
+.ext-link:hover { text-decoration: underline; }
+
+.scope-list {
+  margin: 4px 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scope-list li { list-style: disc; }
+
+.scope-list code {
+  font-size: 0.72rem;
+  background: rgba(255,255,255,0.07);
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: rgba(255,255,255,0.7);
+}
+
 /* ── Google status ───────────────────────────────────────────────────────────── */
 .google-status-row {
   display: flex;

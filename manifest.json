@@ -8,15 +8,13 @@
     "storage",
     "alarms",
     "notifications",
-    "identity",
     "webRequest",
     "webRequestBlocking"
   ],
   "host_permissions": ["<all_urls>"],
 
   "background": {
-    "scripts": ["dist/background.js"],
-    "persistent": false
+    "scripts": ["dist/background.js"]
   },
 
   "action": {
