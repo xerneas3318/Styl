@@ -227,16 +227,24 @@
     try {
       const res = await fetch("https://github.com/login/device/code", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ client_id: clientId, scope: "repo" })
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json"
+        },
+        body: new URLSearchParams({ client_id: clientId, scope: "repo" }).toString()
       });
-      codeData = await res.json();
+      codeData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
     } catch (e) {
-      showStatus(`Failed to reach GitHub: ${e.message}`, true);
+      showStatus(`Could not reach GitHub: ${e.message}`, true);
       return;
     }
     if (codeData.error) {
-      showStatus(`GitHub error: ${codeData.error}`, true);
+      const hint = codeData.error === "not_found" ? "Client ID not recognised \u2014 double-check you copied it from the OAuth App page (starts with Ov23li\u2026)." : codeData.error === "not_supported" ? 'Device Flow is not enabled on this app \u2014 open the OAuth App on GitHub, scroll to "Device Flow", and check the box.' : codeData.error_description ?? codeData.error;
+      showStatus(`GitHub: ${hint}`, true);
+      return;
+    }
+    if (!codeData.user_code || !codeData.verification_uri) {
+      showStatus("Unexpected response from GitHub \u2014 check the Client ID.", true);
       return;
     }
     document.getElementById("gh-device-code").textContent = codeData.user_code;
@@ -255,12 +263,15 @@
       try {
         const res = await fetch("https://github.com/login/oauth/access_token", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json"
+          },
+          body: new URLSearchParams({
             client_id: clientId,
             device_code: codeData.device_code,
             grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-          })
+          }).toString()
         });
         tokenData = await res.json();
       } catch {
