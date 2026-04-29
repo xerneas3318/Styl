@@ -104,6 +104,29 @@ export class GitHubClient {
   saveDiff = (id: string, d: TaskDiff) =>
     this.writeJSON(`diffs/diff-${id}.json`, d, `diff: ${id}`);
 
+  /** Creates the repo if it doesn't already exist (422 = already exists → fine). */
+  async createRepo(name: string): Promise<void> {
+    const res = await fetch(`${GITHUB_API}/user/repos`, {
+      method:  'POST',
+      headers: {
+        Authorization:          `Bearer ${this.cfg.token}`,
+        Accept:                 'application/vnd.github+json',
+        'Content-Type':         'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        name,
+        private:     true,
+        description: 'Styl browser extension data',
+        auto_init:   true,   // creates an initial commit so the branch exists
+      }),
+    });
+    if (!res.ok && res.status !== 422) {
+      const data = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error((data as { message?: string }).message ?? 'Could not create repo');
+    }
+  }
+
   async testConnection(): Promise<{ ok: boolean; error?: string }> {
     try { await this.req('GET', ''); return { ok: true }; }
     catch (e) { return { ok: false, error: (e as Error).message }; }

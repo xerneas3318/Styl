@@ -168,7 +168,7 @@ function resetDevicePrompt() {
 }
 
 async function onGitHubToken(clientId: string, token: string) {
-  // Fetch authenticated user's username
+  // 1. Fetch username
   let username = '';
   try {
     const res = await fetch('https://api.github.com/user', {
@@ -181,17 +181,24 @@ async function onGitHubToken(clientId: string, token: string) {
     return;
   }
 
-  settings.github = {
-    owner:    username,
-    repo:     settings.github?.repo     ?? '',
-    branch:   settings.github?.branch   ?? 'main',
-    token,
-    clientId,
-  };
+  // 2. Store config with a default repo name — we'll create it next
+  const repoName = settings.github?.repo || 'styl-data';
+  settings.github = { owner: username, repo: repoName, branch: 'main', token, clientId };
   await Storage.setSettings(settings);
+
+  // 3. Auto-create the repo (no-op if it already exists) and bootstrap files
+  showStatus(`Creating ${username}/${repoName}…`, false);
+  try {
+    const gh = new GitHubClient(settings.github);
+    await gh.createRepo(repoName);
+    await gh.bootstrap();
+    showStatus(`Connected as @${username} — repo ready!`, false);
+  } catch (e) {
+    showStatus(`Repo setup failed: ${(e as Error).message}`, true);
+  }
+
   notifyBackground();
   updateGitHubUI();
-  showStatus(`Connected as @${username}!`, false);
 }
 
 async function populateRepoSelect(owner: string, token: string) {
@@ -230,15 +237,15 @@ async function testGitHub() {
   if (!settings.github?.token || !settings.github?.repo) {
     showStatus('Connect GitHub and pick a repo first.', true); return;
   }
-  showStatus('Testing…', false);
-  const gh = new GitHubClient(settings.github);
-  const { ok, error } = await gh.testConnection();
-  if (ok) {
-    showStatus('GitHub connected! Bootstrapping repo…', false);
+  showStatus('Checking repo…', false);
+  try {
+    const gh = new GitHubClient(settings.github);
+    // Create the repo if it doesn't exist yet, then bootstrap files
+    await gh.createRepo(settings.github.repo);
     await gh.bootstrap();
     showStatus('GitHub ready.', false);
-  } else {
-    showStatus(`GitHub error: ${error ?? 'unknown'}`, true);
+  } catch (e) {
+    showStatus(`GitHub error: ${(e as Error).message}`, true);
   }
 }
 

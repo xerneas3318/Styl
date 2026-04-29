@@ -258,6 +258,29 @@
       prev.push(entry);
       await this.putFile(path, JSON.stringify(prev, null, 2), `log: ${entry.timestamp}`, file?.sha);
     }
+    /** Creates the repo if it doesn't already exist (422 = already exists → fine). */
+    async createRepo(name) {
+      const res = await fetch(`${GITHUB_API}/user/repos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.cfg.token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        body: JSON.stringify({
+          name,
+          private: true,
+          description: "Styl browser extension data",
+          auto_init: true
+          // creates an initial commit so the branch exists
+        })
+      });
+      if (!res.ok && res.status !== 422) {
+        const data = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(data.message ?? "Could not create repo");
+      }
+    }
     async testConnection() {
       try {
         await this.req("GET", "");

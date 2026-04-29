@@ -119,6 +119,29 @@
       prev.push(entry);
       await this.putFile(path, JSON.stringify(prev, null, 2), `log: ${entry.timestamp}`, file?.sha);
     }
+    /** Creates the repo if it doesn't already exist (422 = already exists → fine). */
+    async createRepo(name) {
+      const res = await fetch(`${GITHUB_API}/user/repos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.cfg.token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        body: JSON.stringify({
+          name,
+          private: true,
+          description: "Styl browser extension data",
+          auto_init: true
+          // creates an initial commit so the branch exists
+        })
+      });
+      if (!res.ok && res.status !== 422) {
+        const data = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(data.message ?? "Could not create repo");
+      }
+    }
     async testConnection() {
       try {
         await this.req("GET", "");
@@ -276,17 +299,20 @@
       showStatus("Connected but could not fetch username.", true);
       return;
     }
-    settings.github = {
-      owner: username,
-      repo: settings.github?.repo ?? "",
-      branch: settings.github?.branch ?? "main",
-      token,
-      clientId
-    };
+    const repoName = settings.github?.repo || "styl-data";
+    settings.github = { owner: username, repo: repoName, branch: "main", token, clientId };
     await Storage.setSettings(settings);
+    showStatus(`Creating ${username}/${repoName}\u2026`, false);
+    try {
+      const gh = new GitHubClient(settings.github);
+      await gh.createRepo(repoName);
+      await gh.bootstrap();
+      showStatus(`Connected as @${username} \u2014 repo ready!`, false);
+    } catch (e) {
+      showStatus(`Repo setup failed: ${e.message}`, true);
+    }
     notifyBackground();
     updateGitHubUI();
-    showStatus(`Connected as @${username}!`, false);
   }
   async function populateRepoSelect(owner, token) {
     const select = document.getElementById("gh-repo-select");
@@ -324,15 +350,14 @@
       showStatus("Connect GitHub and pick a repo first.", true);
       return;
     }
-    showStatus("Testing\u2026", false);
-    const gh = new GitHubClient(settings.github);
-    const { ok, error } = await gh.testConnection();
-    if (ok) {
-      showStatus("GitHub connected! Bootstrapping repo\u2026", false);
+    showStatus("Checking repo\u2026", false);
+    try {
+      const gh = new GitHubClient(settings.github);
+      await gh.createRepo(settings.github.repo);
       await gh.bootstrap();
       showStatus("GitHub ready.", false);
-    } else {
-      showStatus(`GitHub error: ${error ?? "unknown"}`, true);
+    } catch (e) {
+      showStatus(`GitHub error: ${e.message}`, true);
     }
   }
   function showRedirectUri() {
