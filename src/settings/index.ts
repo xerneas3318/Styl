@@ -1,4 +1,4 @@
-import type { AppSettings, AIProvider, GitHubConfig, AIConfig, GoogleConfig } from '../shared/types';
+import type { AppSettings, AIProvider, GitHubConfig } from '../shared/types';
 import { Storage } from '../shared/storage';
 import { GitHubClient } from '../background/github';
 
@@ -18,6 +18,7 @@ async function init() {
   const saved = await Storage.getSettings();
   if (saved) settings = saved;
   populateForm();
+  showRedirectUri();
 }
 
 // ── Populate form fields from settings ───────────────────────────────────────
@@ -41,12 +42,141 @@ function populateForm() {
   setVal('break-dur',      String(Math.round((settings.breakDuration    ?? 5  * 60) / 60)));
   setVal('long-break-dur', String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
 
-  // Google — show masked token and status
-  const gStatus = document.getElementById('google-status') as HTMLElement;
-  const tok = settings.google?.accessToken;
-  gStatus.textContent = tok ? `Token set (${tok.slice(0, 8)}…)` : 'Not connected';
-  // Don't pre-fill the password field for security — leave blank so user only re-enters when changing
-  setVal('google-token', '');
+  // Google — restore saved Client ID into form so user doesn't have to re-enter
+  if (settings.google?.clientId) {
+    setVal('google-client-id', settings.google.clientId);
+  }
+  updateGoogleUI();
+}
+
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+
+function showRedirectUri() {
+  try {
+    const uri = browser.identity.getRedirectURL();
+    (document.getElementById('redirect-uri-display') as HTMLElement).textContent = uri;
+  } catch {
+    (document.getElementById('redirect-uri-display') as HTMLElement).textContent =
+      'browser.identity not available';
+  }
+}
+
+function updateGoogleUI() {
+  const connected    = document.getElementById('google-connected')    as HTMLElement;
+  const disconnected = document.getElementById('google-disconnected') as HTMLElement;
+  const sub          = document.getElementById('google-account-sub')  as HTMLElement;
+
+  if (settings.google?.accessToken) {
+    connected.classList.remove('hidden');
+    disconnected.classList.add('hidden');
+    const services = [
+      settings.google.gmailEnabled    ? 'Gmail'    : null,
+      settings.google.calendarEnabled ? 'Calendar' : null,
+    ].filter(Boolean).join(' + ');
+    sub.textContent = `${services || 'No services'} active`;
+  } else {
+    connected.classList.add('hidden');
+    disconnected.classList.remove('hidden');
+    updateGoogleButtonState();
+  }
+}
+
+function updateGoogleButtonState() {
+  const btn = document.getElementById('connect-google-btn') as HTMLButtonElement;
+  const id  = getVal('google-client-id');
+  const sec = getVal('google-client-secret');
+  btn.disabled = !(id && sec);
+}
+
+async function connectGoogle() {
+  const clientId     = getVal('google-client-id');
+  const clientSecret = getVal('google-client-secret');
+
+  if (!clientId || !clientSecret) {
+    showStatus('Enter your Client ID and Client Secret first.', true);
+    return;
+  }
+
+  const redirectUri = browser.identity.getRedirectURL();
+  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id:     clientId,
+    redirect_uri:  redirectUri,
+    response_type: 'code',
+    scope: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/calendar',
+    ].join(' '),
+    access_type: 'offline',
+    prompt:      'consent',
+  }).toString();
+
+  let redirectUrl: string;
+  try {
+    redirectUrl = await browser.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+  } catch (e) {
+    showStatus(`Sign-in cancelled: ${(e as Error).message}`, true);
+    return;
+  }
+
+  const code = new URL(redirectUrl).searchParams.get('code');
+  if (!code) {
+    showStatus('No authorization code returned.', true);
+    return;
+  }
+
+  showStatus('Connecting…', false);
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        code,
+        client_id:     clientId,
+        client_secret: clientSecret,
+        redirect_uri:  redirectUri,
+        grant_type:    'authorization_code',
+      }).toString(),
+    });
+    const data = await res.json() as {
+      access_token?:  string;
+      refresh_token?: string;
+      expires_in?:    number;
+      error?:         string;
+      error_description?: string;
+    };
+
+    if (data.error) {
+      throw new Error(data.error_description ?? data.error);
+    }
+    if (!data.access_token) {
+      throw new Error('No access token in response');
+    }
+
+    settings.google = {
+      clientId,
+      clientSecret,
+      accessToken:     data.access_token,
+      refreshToken:    data.refresh_token,
+      tokenExpiry:     Date.now() + (data.expires_in ?? 3600) * 1000,
+      gmailEnabled:    true,
+      calendarEnabled: true,
+    };
+    await Storage.setSettings(settings);
+    notifyBackground();
+    updateGoogleUI();
+    showStatus('Google connected!', false);
+  } catch (e) {
+    showStatus(`Token exchange failed: ${(e as Error).message}`, true);
+  }
+}
+
+function disconnectGoogle() {
+  settings.google = null;
+  Storage.setSettings(settings).then(() => {
+    notifyBackground();
+    updateGoogleUI();
+    showStatus('Google disconnected.', false);
+  });
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -65,10 +195,11 @@ function collectSettings(): AppSettings {
       apiKey: getVal('ai-key'),
       model:  getVal('ai-model') || defaultModel(provider),
     },
-    google:          collectGoogle(),
-    autoApproveAI:   getCheck('auto-approve'),
-    focusDuration:   parseInt(getVal('focus-dur'),      10) * 60 || 25 * 60,
-    breakDuration:   parseInt(getVal('break-dur'),      10) * 60 || 5  * 60,
+    // Google is managed entirely by the OAuth flow — never overwrite from the save button
+    google:            settings.google,
+    autoApproveAI:     getCheck('auto-approve'),
+    focusDuration:     parseInt(getVal('focus-dur'),      10) * 60 || 25 * 60,
+    breakDuration:     parseInt(getVal('break-dur'),      10) * 60 || 5  * 60,
     longBreakDuration: parseInt(getVal('long-break-dur'), 10) * 60 || 15 * 60,
   };
 }
@@ -76,15 +207,18 @@ function collectSettings(): AppSettings {
 async function save() {
   settings = collectSettings();
   await Storage.setSettings(settings);
+  notifyBackground();
+  showStatus('Saved.', false);
+}
 
-  // Notify background
+// ── Notify background ─────────────────────────────────────────────────────────
+
+function notifyBackground() {
   try {
     const port = browser.runtime.connect({ name: 'settings' });
     port.postMessage({ type: 'settingsUpdated', settings });
     port.disconnect();
-  } catch { /* background may not be listening on this port name, that's OK */ }
-
-  showStatus('Saved.', false);
+  } catch { /* background may not be listening; that's OK */ }
 }
 
 // ── GitHub test ───────────────────────────────────────────────────────────────
@@ -110,37 +244,11 @@ async function testGitHub() {
   }
 }
 
-// ── Google token (paste from OAuth Playground) ───────────────────────────────
-
-function collectGoogle(): AppSettings['google'] {
-  const raw = getVal('google-token');
-  if (raw) {
-    // User pasted a new token
-    return {
-      accessToken:     raw,
-      tokenExpiry:     Date.now() + 3600 * 1000, // assume 1h; refresh when expired
-      gmailEnabled:    true,
-      calendarEnabled: true,
-    };
-  }
-  // Keep existing token if field was left blank
-  return settings.google ?? null;
-}
-
-function disconnectGoogle() {
-  settings.google = null;
-  setVal('google-token', '');
-  Storage.setSettings(settings).then(() => {
-    populateForm();
-    showStatus('Google token cleared.', false);
-  });
-}
-
 // ── Snapshot history ──────────────────────────────────────────────────────────
 
 async function loadSnapshots() {
-  const snaps   = await Storage.getSnapshots();
-  const list    = document.getElementById('snapshot-list') as HTMLElement;
+  const snaps = await Storage.getSnapshots();
+  const list  = document.getElementById('snapshot-list') as HTMLElement;
   list.innerHTML = '';
 
   if (!snaps.length) {
@@ -164,7 +272,7 @@ async function loadSnapshots() {
     revert.className   = 'snap-revert';
     revert.textContent = 'Revert';
     revert.addEventListener('click', () => {
-      if (!confirm(`Revert to snapshot from ${new Date(snap.timestamp).toLocaleString()}?`)) return;
+      if (!confirm(`Revert to ${new Date(snap.timestamp).toLocaleString()}?`)) return;
       const port = browser.runtime.connect({ name: 'settings' });
       port.postMessage({ type: 'revertToSnapshot', snapshotId: snap.id });
       port.disconnect();
@@ -178,9 +286,9 @@ async function loadSnapshots() {
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
-function getVal(id: string)  { return (document.getElementById(id) as HTMLInputElement).value.trim(); }
+function getVal(id: string) { return (document.getElementById(id) as HTMLInputElement).value.trim(); }
 function setVal(id: string, v: string) { (document.getElementById(id) as HTMLInputElement).value = v; }
-function getCheck(id: string)  { return (document.getElementById(id) as HTMLInputElement).checked; }
+function getCheck(id: string) { return (document.getElementById(id) as HTMLInputElement).checked; }
 function setCheck(id: string, v: boolean) { (document.getElementById(id) as HTMLInputElement).checked = v; }
 
 function showStatus(msg: string, isError: boolean) {
@@ -220,8 +328,15 @@ function initTabs() {
 
 document.getElementById('save-btn')!.addEventListener('click', save);
 document.getElementById('test-github-btn')!.addEventListener('click', testGitHub);
+document.getElementById('connect-google-btn')!.addEventListener('click', connectGoogle);
 document.getElementById('disconnect-google-btn')!.addEventListener('click', disconnectGoogle);
+document.getElementById('copy-redirect-uri')!.addEventListener('click', () => {
+  const uri = (document.getElementById('redirect-uri-display') as HTMLElement).textContent ?? '';
+  navigator.clipboard.writeText(uri).then(() => showStatus('Copied!', false));
+});
 document.getElementById('ai-provider')!.addEventListener('change', updateModelPlaceholder);
+document.getElementById('google-client-id')!.addEventListener('input', updateGoogleButtonState);
+document.getElementById('google-client-secret')!.addEventListener('input', updateGoogleButtonState);
 
 initTabs();
 init();

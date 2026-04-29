@@ -862,12 +862,13 @@ ${JSON.stringify(calendar, null, 2)}`
         break;
       // ── Gmail ─────────────────────────────────────────────────────────────────
       case "gmailScan": {
-        if (!settings.google?.accessToken) {
+        const token = await ensureGoogleToken();
+        if (!token) {
           port.postMessage({ type: "error", message: "Gmail not connected." });
           break;
         }
         try {
-          const gmail = new GmailClient(settings.google.accessToken);
+          const gmail = new GmailClient(token);
           const messages = await gmail.getRecentUnread();
           port.postMessage({ type: "gmailMessages", messages });
         } catch (e) {
@@ -888,9 +889,13 @@ ${JSON.stringify(calendar, null, 2)}`
     appState.memory = memory;
     await persistState();
     broadcastState();
-    if (calendarRequests.length && settings.google?.accessToken) {
-      const cal = new CalendarClient(settings.google.accessToken);
-      calendarRequests.forEach((r) => cal.createEvent(r).catch(console.warn));
+    if (calendarRequests.length) {
+      ensureGoogleToken().then((tok) => {
+        if (tok) {
+          const cal = new CalendarClient(tok);
+          calendarRequests.forEach((r) => cal.createEvent(r).catch(console.warn));
+        }
+      });
     }
     if (settings.github) {
       const gh = new GitHubClient(settings.github);
@@ -913,6 +918,38 @@ ${JSON.stringify(calendar, null, 2)}`
     if (!settings.github) return;
     const gh = new GitHubClient(settings.github);
     fn(gh).catch((e) => console.warn("[styl] gh sync:", e));
+  }
+  async function ensureGoogleToken() {
+    const g = settings.google;
+    if (!g) return null;
+    if (g.accessToken && g.tokenExpiry && Date.now() < g.tokenExpiry - 6e4) {
+      return g.accessToken;
+    }
+    if (!g.refreshToken || !g.clientId || !g.clientSecret) return g.accessToken ?? null;
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: g.clientId,
+          client_secret: g.clientSecret,
+          refresh_token: g.refreshToken,
+          grant_type: "refresh_token"
+        }).toString()
+      });
+      const data = await res.json();
+      if (data.error || !data.access_token) throw new Error(data.error ?? "no token");
+      settings.google = {
+        ...g,
+        accessToken: data.access_token,
+        tokenExpiry: Date.now() + (data.expires_in ?? 3600) * 1e3
+      };
+      await Storage.setSettings(settings);
+      return data.access_token;
+    } catch (e) {
+      console.warn("[styl] token refresh failed:", e);
+      return g.accessToken ?? null;
+    }
   }
   async function persistState() {
     await Storage.setState(appState);

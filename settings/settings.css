@@ -322,6 +322,127 @@ body {
 }
 .snap-revert:hover { background: rgba(108,99,255,0.2); color: white; }
 
+/* ── Google account row (connected state) ────────────────────────────────────── */
+.google-account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+}
+
+.google-account-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4285F4 0%, #34A853 50%, #EA4335 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.google-account-label {
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.85);
+  font-weight: 500;
+}
+
+.google-account-sub {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.35);
+  margin-top: 2px;
+}
+
+.google-account-row > div { flex: 1; }
+
+/* ── Google sign-in button ───────────────────────────────────────────────────── */
+.btn-google {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: white;
+  border: none;
+  border-radius: 10px;
+  color: #3c4043;
+  font-size: 0.84rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, opacity 0.15s;
+  margin-top: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.btn-google:hover:not(:disabled) { box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+.btn-google:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Setup collapsible ───────────────────────────────────────────────────────── */
+.setup-details {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.setup-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: color 0.15s;
+}
+.setup-summary::-webkit-details-marker { display: none; }
+.setup-summary:hover { color: rgba(255,255,255,0.8); }
+
+.setup-chevron {
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+.setup-details[open] .setup-chevron { transform: rotate(90deg); }
+
+/* ── Redirect URI box ────────────────────────────────────────────────────────── */
+.redirect-uri-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  padding: 6px 10px;
+  margin-top: 5px;
+}
+
+.redirect-uri-box code {
+  flex: 1;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.65);
+  word-break: break-all;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.4);
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.copy-btn:hover { color: white; border-color: rgba(255,255,255,0.35); }
+
 /* ── Footer ─────────────────────────────────────────────────────────────────── */
 .settings-footer {
   margin-top: 28px;

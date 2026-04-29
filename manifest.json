@@ -9,7 +9,8 @@
     "alarms",
     "notifications",
     "webRequest",
-    "webRequestBlocking"
+    "webRequestBlocking",
+    "identity"
   ],
   "host_permissions": ["<all_urls>"],
 
@@ -39,5 +40,12 @@
       "resources": ["blocked/blocked.html"],
       "matches": ["<all_urls>"]
     }
-  ]
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "styl@xerneas",
+      "strict_min_version": "109.0"
+    }
+  }
 }

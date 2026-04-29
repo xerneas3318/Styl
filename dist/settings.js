@@ -153,6 +153,7 @@
     const saved = await Storage.getSettings();
     if (saved) settings = saved;
     populateForm();
+    showRedirectUri();
   }
   function populateForm() {
     setVal("gh-owner", settings.github?.owner ?? "");
@@ -167,10 +168,118 @@
     setVal("focus-dur", String(Math.round((settings.focusDuration ?? 25 * 60) / 60)));
     setVal("break-dur", String(Math.round((settings.breakDuration ?? 5 * 60) / 60)));
     setVal("long-break-dur", String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
-    const gStatus = document.getElementById("google-status");
-    const tok = settings.google?.accessToken;
-    gStatus.textContent = tok ? `Token set (${tok.slice(0, 8)}\u2026)` : "Not connected";
-    setVal("google-token", "");
+    if (settings.google?.clientId) {
+      setVal("google-client-id", settings.google.clientId);
+    }
+    updateGoogleUI();
+  }
+  function showRedirectUri() {
+    try {
+      const uri = browser.identity.getRedirectURL();
+      document.getElementById("redirect-uri-display").textContent = uri;
+    } catch {
+      document.getElementById("redirect-uri-display").textContent = "browser.identity not available";
+    }
+  }
+  function updateGoogleUI() {
+    const connected = document.getElementById("google-connected");
+    const disconnected = document.getElementById("google-disconnected");
+    const sub = document.getElementById("google-account-sub");
+    if (settings.google?.accessToken) {
+      connected.classList.remove("hidden");
+      disconnected.classList.add("hidden");
+      const services = [
+        settings.google.gmailEnabled ? "Gmail" : null,
+        settings.google.calendarEnabled ? "Calendar" : null
+      ].filter(Boolean).join(" + ");
+      sub.textContent = `${services || "No services"} active`;
+    } else {
+      connected.classList.add("hidden");
+      disconnected.classList.remove("hidden");
+      updateGoogleButtonState();
+    }
+  }
+  function updateGoogleButtonState() {
+    const btn = document.getElementById("connect-google-btn");
+    const id = getVal("google-client-id");
+    const sec = getVal("google-client-secret");
+    btn.disabled = !(id && sec);
+  }
+  async function connectGoogle() {
+    const clientId = getVal("google-client-id");
+    const clientSecret = getVal("google-client-secret");
+    if (!clientId || !clientSecret) {
+      showStatus("Enter your Client ID and Client Secret first.", true);
+      return;
+    }
+    const redirectUri = browser.identity.getRedirectURL();
+    const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar"
+      ].join(" "),
+      access_type: "offline",
+      prompt: "consent"
+    }).toString();
+    let redirectUrl;
+    try {
+      redirectUrl = await browser.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+    } catch (e) {
+      showStatus(`Sign-in cancelled: ${e.message}`, true);
+      return;
+    }
+    const code = new URL(redirectUrl).searchParams.get("code");
+    if (!code) {
+      showStatus("No authorization code returned.", true);
+      return;
+    }
+    showStatus("Connecting\u2026", false);
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code"
+        }).toString()
+      });
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error_description ?? data.error);
+      }
+      if (!data.access_token) {
+        throw new Error("No access token in response");
+      }
+      settings.google = {
+        clientId,
+        clientSecret,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        tokenExpiry: Date.now() + (data.expires_in ?? 3600) * 1e3,
+        gmailEnabled: true,
+        calendarEnabled: true
+      };
+      await Storage.setSettings(settings);
+      notifyBackground();
+      updateGoogleUI();
+      showStatus("Google connected!", false);
+    } catch (e) {
+      showStatus(`Token exchange failed: ${e.message}`, true);
+    }
+  }
+  function disconnectGoogle() {
+    settings.google = null;
+    Storage.setSettings(settings).then(() => {
+      notifyBackground();
+      updateGoogleUI();
+      showStatus("Google disconnected.", false);
+    });
   }
   function collectSettings() {
     const provider = getVal("ai-provider");
@@ -186,7 +295,8 @@
         apiKey: getVal("ai-key"),
         model: getVal("ai-model") || defaultModel(provider)
       },
-      google: collectGoogle(),
+      // Google is managed entirely by the OAuth flow — never overwrite from the save button
+      google: settings.google,
       autoApproveAI: getCheck("auto-approve"),
       focusDuration: parseInt(getVal("focus-dur"), 10) * 60 || 25 * 60,
       breakDuration: parseInt(getVal("break-dur"), 10) * 60 || 5 * 60,
@@ -196,13 +306,16 @@
   async function save() {
     settings = collectSettings();
     await Storage.setSettings(settings);
+    notifyBackground();
+    showStatus("Saved.", false);
+  }
+  function notifyBackground() {
     try {
       const port = browser.runtime.connect({ name: "settings" });
       port.postMessage({ type: "settingsUpdated", settings });
       port.disconnect();
     } catch {
     }
-    showStatus("Saved.", false);
   }
   async function testGitHub() {
     const cfg = {
@@ -225,27 +338,6 @@
       showStatus(`GitHub error: ${error ?? "unknown"}`, true);
     }
   }
-  function collectGoogle() {
-    const raw = getVal("google-token");
-    if (raw) {
-      return {
-        accessToken: raw,
-        tokenExpiry: Date.now() + 3600 * 1e3,
-        // assume 1h; refresh when expired
-        gmailEnabled: true,
-        calendarEnabled: true
-      };
-    }
-    return settings.google ?? null;
-  }
-  function disconnectGoogle() {
-    settings.google = null;
-    setVal("google-token", "");
-    Storage.setSettings(settings).then(() => {
-      populateForm();
-      showStatus("Google token cleared.", false);
-    });
-  }
   async function loadSnapshots() {
     const snaps = await Storage.getSnapshots();
     const list = document.getElementById("snapshot-list");
@@ -267,7 +359,7 @@
       revert.className = "snap-revert";
       revert.textContent = "Revert";
       revert.addEventListener("click", () => {
-        if (!confirm(`Revert to snapshot from ${new Date(snap.timestamp).toLocaleString()}?`)) return;
+        if (!confirm(`Revert to ${new Date(snap.timestamp).toLocaleString()}?`)) return;
         const port = browser.runtime.connect({ name: "settings" });
         port.postMessage({ type: "revertToSnapshot", snapshotId: snap.id });
         port.disconnect();
@@ -318,8 +410,15 @@
   }
   document.getElementById("save-btn").addEventListener("click", save);
   document.getElementById("test-github-btn").addEventListener("click", testGitHub);
+  document.getElementById("connect-google-btn").addEventListener("click", connectGoogle);
   document.getElementById("disconnect-google-btn").addEventListener("click", disconnectGoogle);
+  document.getElementById("copy-redirect-uri").addEventListener("click", () => {
+    const uri = document.getElementById("redirect-uri-display").textContent ?? "";
+    navigator.clipboard.writeText(uri).then(() => showStatus("Copied!", false));
+  });
   document.getElementById("ai-provider").addEventListener("change", updateModelPlaceholder);
+  document.getElementById("google-client-id").addEventListener("input", updateGoogleButtonState);
+  document.getElementById("google-client-secret").addEventListener("input", updateGoogleButtonState);
   initTabs();
   init();
 })();
