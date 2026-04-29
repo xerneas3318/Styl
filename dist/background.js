@@ -670,7 +670,7 @@ ${JSON.stringify(calendar, null, 2)}`
     }
     if (savedSettings) settings = savedSettings;
     browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
-    if (settings.github) {
+    if (settings.github && !savedState) {
       syncFromGitHub().catch((e) => console.warn("[styl] boot sync:", e));
     }
   })();

@@ -65,7 +65,10 @@ const ports = new Set<browser.runtime.Port>();
   // Keep-alive alarm — prevents service worker from sleeping mid-session
   browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
 
-  if (settings.github) {
+  // Only pull from GitHub on boot when there is NO local state (first-time setup
+  // on a new device). If local state exists, trust it — a boot sync would race
+  // with any in-flight AI writes and silently overwrite tasks with stale GitHub data.
+  if (settings.github && !savedState) {
     syncFromGitHub().catch((e) => console.warn('[styl] boot sync:', e));
   }
 })();
