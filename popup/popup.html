@@ -25,19 +25,22 @@
       <button class="mode-tab" data-mode="longBreak">Long Break</button>
     </div>
 
-    <div class="timer-ring-wrap">
-      <svg viewBox="0 0 120 120" class="ring-svg">
-        <circle class="ring-bg" cx="60" cy="60" r="52"/>
-        <circle class="ring-fg" id="progress-ring" cx="60" cy="60" r="52"
-          stroke-dasharray="326.73" stroke-dashoffset="0"/>
-      </svg>
-      <div class="timer-display">
-        <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
-        <div class="time-editor hidden" id="time-editor">
-          <input type="number" id="time-edit" min="1" max="180" placeholder="25">
-          <span class="edit-unit">min</span>
+    <div class="ring-area">
+      <div class="timer-ring-wrap">
+        <svg viewBox="0 0 120 120" class="ring-svg">
+          <circle class="ring-bg" cx="60" cy="60" r="52"/>
+          <circle class="ring-fg" id="progress-ring" cx="60" cy="60" r="52"
+            stroke-dasharray="326.73" stroke-dashoffset="0"/>
+        </svg>
+        <div class="timer-display">
+          <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
+          <div class="time-editor hidden" id="time-editor">
+            <input type="number" id="time-edit" min="1" max="180" placeholder="25">
+            <span class="edit-unit">min</span>
+          </div>
         </div>
       </div>
+      <button class="add-min-btn" id="add-min-btn" title="Add 1 minute">+1 min</button>
     </div>
     <div class="preset-bar hidden" id="preset-bar"></div>
 

@@ -259,6 +259,37 @@ body.night {
   text-transform: uppercase;
 }
 
+/* +1 min button — sits to the right of the ring */
+.ring-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.add-min-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
+.add-min-btn:hover {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.3);
+  color: white;
+}
+
+.add-min-btn:active { transform: scale(0.95); }
+
 /* Preset chips */
 .preset-bar {
   display: flex;

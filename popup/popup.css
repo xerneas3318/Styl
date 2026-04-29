@@ -77,6 +77,35 @@ body {
 
 /* ── Timer ring ──────────────────────────────────────────────────────────── */
 
+.ring-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.add-min-btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.68rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+
+.add-min-btn:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.25);
+  color: white;
+}
+
+.add-min-btn:active { transform: scale(0.95); }
+
 .timer-ring-wrap {
   position: relative;
   width: 140px;

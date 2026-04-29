@@ -231,6 +231,9 @@ document.getElementById('reset-btn').addEventListener('click', () =>
 document.getElementById('skip-btn').addEventListener('click', () =>
   port.postMessage({ type: 'skip' }));
 
+document.getElementById('add-min-btn').addEventListener('click', () =>
+  port.postMessage({ type: 'addMinute' }));
+
 // ── Daily focus (persisted in localStorage) ───────────────────────────────────
 
 const focusInput = document.getElementById('focus-input');

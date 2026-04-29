@@ -176,6 +176,11 @@ function handleMessage(msg, port) {
       break;
     }
 
+    case 'addMinute':
+      state.timeRemaining += 60;
+      broadcastState();
+      break;
+
     case 'getState':
       port.postMessage({ type: 'stateUpdate', state: snapshot() });
       break;
