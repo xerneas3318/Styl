@@ -387,3 +387,87 @@ body.night {
   text-align: center;
   padding: 0 8px;
 }
+
+/* ── Custom wallpaper ────────────────────────────────────────────────────── */
+
+/* When a photo is set: cover the viewport, stop the gradient drift,
+   and add a subtle overlay so text stays legible over any image */
+body.has-wallpaper {
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  animation: none !important;
+  transition: background-image 0.4s ease !important;
+}
+
+body.has-wallpaper::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  /* Gentle vignette — darker at edges, lighter in the center */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0,0,0,0.15) 0%,
+    rgba(0,0,0,0.50) 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Keep page content above the overlay */
+body.has-wallpaper .page,
+body.has-wallpaper .wallpaper-controls {
+  position: relative;
+  z-index: 1;
+}
+
+/* Wallpaper button cluster — fixed to bottom-right corner */
+.wallpaper-controls {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+
+.wallpaper-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(0,0,0,0.38);
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.wallpaper-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.wallpaper-btn:hover {
+  background: rgba(0,0,0,0.6);
+  border-color: rgba(255,255,255,0.55);
+  color: white;
+  transform: scale(1.08);
+}
+
+.wallpaper-remove {
+  /* slightly smaller to show hierarchy */
+  width: 34px;
+  height: 34px;
+  align-self: center;
+}
+
+.wallpaper-remove svg {
+  width: 14px;
+  height: 14px;
+}

@@ -257,9 +257,94 @@ function loadQuote() {
   document.getElementById('quote').textContent = `"${QUOTES[idx]}"`;
 }
 
+// ── Wallpaper (IndexedDB — full-resolution Blob, zero quality loss) ───────────
+
+const WP_DB    = 'moments';
+const WP_STORE = 'wallpaper';
+let   _db      = null;
+let   _wpUrl   = null; // active object URL, revoked on replace/remove
+
+function openDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(WP_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(WP_STORE);
+    req.onsuccess  = () => { _db = req.result; resolve(_db); };
+    req.onerror    = () => reject(req.error);
+  });
+}
+
+async function wpSave(blob) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WP_STORE, 'readwrite');
+    tx.objectStore(WP_STORE).put(blob, 'img');
+    tx.oncomplete = resolve;
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+async function wpLoad() {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx  = db.transaction(WP_STORE, 'readonly');
+    const req = tx.objectStore(WP_STORE).get('img');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror   = () => resolve(null);
+  });
+}
+
+async function wpClear() {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(WP_STORE, 'readwrite');
+    tx.objectStore(WP_STORE).delete('img');
+    tx.oncomplete = resolve;
+    tx.onerror    = resolve; // non-fatal
+  });
+}
+
+function applyBlob(blob) {
+  if (_wpUrl) URL.revokeObjectURL(_wpUrl);
+  _wpUrl = URL.createObjectURL(blob);
+  document.body.style.backgroundImage = `url(${_wpUrl})`;
+  document.body.classList.add('has-wallpaper');
+  document.getElementById('wallpaper-remove-btn').classList.remove('hidden');
+}
+
+function removeWallpaper() {
+  if (_wpUrl) { URL.revokeObjectURL(_wpUrl); _wpUrl = null; }
+  document.body.style.backgroundImage = '';
+  document.body.classList.remove('has-wallpaper');
+  document.getElementById('wallpaper-remove-btn').classList.add('hidden');
+  wpClear();
+}
+
+async function initWallpaper() {
+  const blob = await wpLoad();
+  if (blob) applyBlob(blob);
+}
+
+// File picker
+const wallpaperFile = document.getElementById('wallpaper-file');
+
+document.getElementById('wallpaper-upload-btn').addEventListener('click', () =>
+  wallpaperFile.click());
+
+wallpaperFile.addEventListener('change', async () => {
+  const file = wallpaperFile.files[0];
+  if (!file) return;
+  wallpaperFile.value = ''; // reset so same file can be re-picked
+  await wpSave(file);       // store original Blob — no recompression
+  applyBlob(file);
+});
+
+document.getElementById('wallpaper-remove-btn').addEventListener('click', removeWallpaper);
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 startClock();
 connect();
 loadDailyFocus();
 loadQuote();
+initWallpaper();

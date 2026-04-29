@@ -81,6 +81,9 @@ function onTimerComplete() {
     ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
     : 'Break over — time to focus.';
 
+  // Play from the persistent background page — always running, no autoplay block
+  playChime();
+
   browser.notifications.create('moments-timer', {
     type: 'basic',
     iconUrl: browser.runtime.getURL('icons/icon.svg'),

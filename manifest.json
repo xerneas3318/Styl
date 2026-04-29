@@ -8,7 +8,7 @@
     "notifications"
   ],
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["shared/sound.js", "background.js"],
     "persistent": true
   },
   "browser_action": {
