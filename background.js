@@ -3,6 +3,7 @@
 const DEFAULTS = {
   mode: 'focus',
   timeRemaining: 25 * 60,
+  sessionTotal: 25 * 60,  // denominator for the ring — grows when +1 min is added
   isRunning: false,
   focusDuration: 25 * 60,
   breakDuration: 5 * 60,
@@ -87,6 +88,7 @@ function onTimerComplete() {
     state.mode = 'focus';
     state.timeRemaining = durationFor('focus');
   }
+  state.sessionTotal = durationFor(state.mode);
 
   saveSettings();
   playChime();
@@ -139,6 +141,7 @@ function handleMessage(msg, port) {
       clearInterval(timerInterval);
       timerInterval = null;
       state.timeRemaining = durationFor(state.mode);
+      state.sessionTotal  = durationFor(state.mode);
       broadcastState();
       break;
 
@@ -153,6 +156,7 @@ function handleMessage(msg, port) {
         state.mode = 'focus';
       }
       state.timeRemaining = durationFor(state.mode);
+      state.sessionTotal  = durationFor(state.mode);
       broadcastState();
       break;
 
@@ -162,6 +166,7 @@ function handleMessage(msg, port) {
       timerInterval = null;
       state.mode = msg.mode;
       state.timeRemaining = durationFor(state.mode);
+      state.sessionTotal  = durationFor(state.mode);
       broadcastState();
       break;
 
@@ -170,7 +175,10 @@ function handleMessage(msg, port) {
       if (focusDuration > 0)     state.focusDuration     = focusDuration;
       if (breakDuration > 0)     state.breakDuration     = breakDuration;
       if (longBreakDuration > 0) state.longBreakDuration = longBreakDuration;
-      if (!state.isRunning) state.timeRemaining = durationFor(state.mode);
+      if (!state.isRunning) {
+        state.timeRemaining = durationFor(state.mode);
+        state.sessionTotal  = durationFor(state.mode);
+      }
       saveSettings();
       broadcastState();
       break;
@@ -178,6 +186,7 @@ function handleMessage(msg, port) {
 
     case 'addMinute':
       state.timeRemaining += 60;
+      state.sessionTotal  += 60;
       broadcastState();
       break;
 
@@ -262,6 +271,7 @@ browser.storage.local.get(['settings', 'blockState']).then((result) => {
     if (s.longBreakDuration) state.longBreakDuration = s.longBreakDuration;
     if (s.sessionsCompleted) state.sessionsCompleted = s.sessionsCompleted;
     state.timeRemaining = durationFor(state.mode);
+    state.sessionTotal  = durationFor(state.mode);
   }
   if (result.blockState) {
     if (typeof result.blockState.enabled === 'boolean') {

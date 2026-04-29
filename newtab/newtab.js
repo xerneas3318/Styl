@@ -116,7 +116,7 @@ function renderTimer() {
     document.getElementById('time-text').textContent = fmt(state.timeRemaining);
   }
 
-  const total    = totalFor(state.mode);
+  const total    = state.sessionTotal || totalFor(state.mode);
   const progress = state.timeRemaining / total;
   const offset   = (1 - progress) * RING_CIRCUMFERENCE;
   document.getElementById('progress-ring').style.strokeDashoffset = offset;
