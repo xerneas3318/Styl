@@ -14,8 +14,6 @@ let settings: AppSettings = {
   longBreakDuration: 15 * 60,
 };
 
-/** Timer ID for GitHub device-code polling */
-let ghPollTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function init() {
   const saved = await Storage.getSettings();
@@ -27,11 +25,7 @@ async function init() {
 // ── Populate form fields from settings ───────────────────────────────────────
 
 function populateForm() {
-  // GitHub — if connected, populate connected UI
-  if (settings.github?.clientId) {
-    setVal('gh-client-id', settings.github.clientId);
-  }
-  setVal('gh-branch', settings.github?.branch ?? 'main');
+  // GitHub — connected state handles itself via updateGitHubUI
   updateGitHubUI();
 
   // AI
@@ -51,7 +45,7 @@ function populateForm() {
   updateGoogleUI();
 }
 
-// ── GitHub Device Flow ────────────────────────────────────────────────────────
+// ── GitHub PAT flow ───────────────────────────────────────────────────────────
 
 function updateGitHubUI() {
   const connected    = document.getElementById('github-connected')    as HTMLElement;
@@ -69,155 +63,40 @@ function updateGitHubUI() {
   } else {
     connected.classList.add('hidden');
     disconnected.classList.remove('hidden');
-    updateGitHubButtonState();
   }
 }
 
-function updateGitHubButtonState() {
-  const btn = document.getElementById('connect-github-btn') as HTMLButtonElement;
-  btn.disabled = !getVal('gh-client-id');
-}
-
-async function connectGitHub() {
-  const clientId = getVal('gh-client-id');
-  if (!clientId) {
-    showStatus('Enter your GitHub OAuth App Client ID first.', true);
-    return;
-  }
-
-  // Step 1: Request device & user codes
-  showStatus('Requesting device code…', false);
-  let codeData: {
-    device_code?:       string;
-    user_code?:         string;
-    verification_uri?:  string;
-    expires_in?:        number;
-    interval?:          number;
-    error?:             string;
-    error_description?: string;
-  };
-
+/** Called when user pastes a token — auto-detects username and sets up repo. */
+async function connectGitHubWithToken(token: string) {
+  showStatus('Connecting…', false);
   try {
-    // GitHub OAuth endpoints expect form-encoded bodies
-    const res = await fetch('https://github.com/login/device/code', {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept:         'application/json',
-      },
-      body: new URLSearchParams({ client_id: clientId, scope: 'repo' }).toString(),
-    });
-    codeData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-  } catch (e) {
-    showStatus(`Could not reach GitHub: ${(e as Error).message}`, true);
-    return;
-  }
-
-  if (codeData.error) {
-    const hint =
-      codeData.error === 'not_found'
-        ? 'Client ID not recognised — double-check you copied it from the OAuth App page (starts with Ov23li…).'
-        : codeData.error === 'not_supported'
-        ? 'Device Flow is not enabled on this app — open the OAuth App on GitHub, scroll to "Device Flow", and check the box.'
-        : codeData.error_description ?? codeData.error;
-    showStatus(`GitHub: ${hint}`, true);
-    return;
-  }
-
-  if (!codeData.user_code || !codeData.verification_uri) {
-    showStatus('Unexpected response from GitHub — check the Client ID.', true);
-    return;
-  }
-
-  // Step 2: Show user code and open github.com/login/device
-  (document.getElementById('gh-device-code') as HTMLElement).textContent = codeData.user_code;
-  (document.getElementById('gh-device-prompt') as HTMLElement).classList.remove('hidden');
-  (document.getElementById('connect-github-btn') as HTMLButtonElement).disabled = true;
-  window.open(codeData.verification_uri, '_blank');
-
-  // Step 3: Poll for the token
-  const interval  = (codeData.interval ?? 5) * 1000;
-  const expiresAt = Date.now() + (codeData.expires_in ?? 900) * 1000;
-
-  const poll = async () => {
-    if (Date.now() > expiresAt) {
-      showStatus('Code expired — try again.', true);
-      resetDevicePrompt();
-      return;
-    }
-
-    let tokenData: { access_token?: string; error?: string; error_description?: string };
-    try {
-      const res = await fetch('https://github.com/login/oauth/access_token', {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept:         'application/json',
-        },
-        body: new URLSearchParams({
-          client_id:   clientId,
-          device_code: codeData.device_code!,
-          grant_type:  'urn:ietf:params:oauth:grant-type:device_code',
-        }).toString(),
-      });
-      tokenData = await res.json();
-    } catch {
-      ghPollTimer = setTimeout(poll, interval);
-      return;
-    }
-
-    if (tokenData.access_token) {
-      resetDevicePrompt();
-      await onGitHubToken(clientId, tokenData.access_token);
-    } else if (tokenData.error === 'authorization_pending' || tokenData.error === 'slow_down') {
-      ghPollTimer = setTimeout(poll, tokenData.error === 'slow_down' ? interval + 5000 : interval);
-    } else {
-      showStatus(`GitHub auth failed: ${tokenData.error_description ?? tokenData.error}`, true);
-      resetDevicePrompt();
-    }
-  };
-
-  ghPollTimer = setTimeout(poll, interval);
-}
-
-function resetDevicePrompt() {
-  (document.getElementById('gh-device-prompt')    as HTMLElement).classList.add('hidden');
-  (document.getElementById('connect-github-btn') as HTMLButtonElement).disabled = false;
-  if (ghPollTimer) { clearTimeout(ghPollTimer); ghPollTimer = null; }
-}
-
-async function onGitHubToken(clientId: string, token: string) {
-  // 1. Fetch username
-  let username = '';
-  try {
+    // 1. Verify token and get username
     const res = await fetch('https://api.github.com/user', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const u = await res.json() as { login: string };
-    username = u.login;
-  } catch {
-    showStatus('Connected but could not fetch username.', true);
-    return;
-  }
+    if (!res.ok) {
+      showStatus('Invalid token — make sure you copied the full token.', true);
+      return;
+    }
+    const { login } = await res.json() as { login: string };
 
-  // 2. Store config with a default repo name — we'll create it next
-  const repoName = settings.github?.repo || 'styl-data';
-  settings.github = { owner: username, repo: repoName, branch: 'main', token, clientId };
-  await Storage.setSettings(settings);
+    // 2. Store config
+    const repoName = settings.github?.repo || 'styl-data';
+    settings.github = { owner: login, repo: repoName, branch: 'main', token };
+    await Storage.setSettings(settings);
 
-  // 3. Auto-create the repo (no-op if it already exists) and bootstrap files
-  showStatus(`Creating ${username}/${repoName}…`, false);
-  try {
+    // 3. Auto-create repo and bootstrap
+    showStatus(`Creating ${login}/${repoName}…`, false);
     const gh = new GitHubClient(settings.github);
     await gh.createRepo(repoName);
     await gh.bootstrap();
-    showStatus(`Connected as @${username} — repo ready!`, false);
-  } catch (e) {
-    showStatus(`Repo setup failed: ${(e as Error).message}`, true);
-  }
 
-  notifyBackground();
-  updateGitHubUI();
+    notifyBackground();
+    updateGitHubUI();
+    showStatus(`Connected as @${login} — repo ready!`, false);
+  } catch (e) {
+    showStatus(`Connection failed: ${(e as Error).message}`, true);
+  }
 }
 
 async function populateRepoSelect(owner: string, token: string) {
@@ -505,14 +384,19 @@ function initTabs() {
 // ── Wire events ───────────────────────────────────────────────────────────────
 
 // GitHub
-document.getElementById('connect-github-btn')!.addEventListener('click', connectGitHub);
+document.getElementById('open-github-pat-btn')!.addEventListener('click', () => {
+  window.open(
+    'https://github.com/settings/tokens/new?scopes=repo&description=Styl+browser+extension',
+    '_blank',
+  );
+});
+document.getElementById('gh-token-paste')!.addEventListener('input', async () => {
+  const token = getVal('gh-token-paste');
+  // GitHub PATs are at least 40 chars; fine-grained tokens are longer
+  if (token.length >= 40) await connectGitHubWithToken(token);
+});
 document.getElementById('disconnect-github-btn')!.addEventListener('click', disconnectGitHub);
 document.getElementById('test-github-btn')!.addEventListener('click', testGitHub);
-document.getElementById('gh-client-id')!.addEventListener('input', updateGitHubButtonState);
-document.getElementById('copy-device-code')!.addEventListener('click', () => {
-  const code = (document.getElementById('gh-device-code') as HTMLElement).textContent ?? '';
-  navigator.clipboard.writeText(code).then(() => showStatus('Code copied!', false));
-});
 document.getElementById('gh-repo-select')!.addEventListener('change', async () => {
   if (!settings.github) return;
   const repo = (document.getElementById('gh-repo-select') as HTMLSelectElement).value;

@@ -172,7 +172,6 @@
     breakDuration: 5 * 60,
     longBreakDuration: 15 * 60
   };
-  var ghPollTimer = null;
   async function init() {
     const saved = await Storage.getSettings();
     if (saved) settings = saved;
@@ -180,10 +179,6 @@
     showRedirectUri();
   }
   function populateForm() {
-    if (settings.github?.clientId) {
-      setVal("gh-client-id", settings.github.clientId);
-    }
-    setVal("gh-branch", settings.github?.branch ?? "main");
     updateGitHubUI();
     setVal("ai-provider", settings.ai?.provider ?? "anthropic");
     setVal("ai-key", settings.ai?.apiKey ?? "");
@@ -209,121 +204,32 @@
     } else {
       connected.classList.add("hidden");
       disconnected.classList.remove("hidden");
-      updateGitHubButtonState();
     }
   }
-  function updateGitHubButtonState() {
-    const btn = document.getElementById("connect-github-btn");
-    btn.disabled = !getVal("gh-client-id");
-  }
-  async function connectGitHub() {
-    const clientId = getVal("gh-client-id");
-    if (!clientId) {
-      showStatus("Enter your GitHub OAuth App Client ID first.", true);
-      return;
-    }
-    showStatus("Requesting device code\u2026", false);
-    let codeData;
-    try {
-      const res = await fetch("https://github.com/login/device/code", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json"
-        },
-        body: new URLSearchParams({ client_id: clientId, scope: "repo" }).toString()
-      });
-      codeData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    } catch (e) {
-      showStatus(`Could not reach GitHub: ${e.message}`, true);
-      return;
-    }
-    if (codeData.error) {
-      const hint = codeData.error === "not_found" ? "Client ID not recognised \u2014 double-check you copied it from the OAuth App page (starts with Ov23li\u2026)." : codeData.error === "not_supported" ? 'Device Flow is not enabled on this app \u2014 open the OAuth App on GitHub, scroll to "Device Flow", and check the box.' : codeData.error_description ?? codeData.error;
-      showStatus(`GitHub: ${hint}`, true);
-      return;
-    }
-    if (!codeData.user_code || !codeData.verification_uri) {
-      showStatus("Unexpected response from GitHub \u2014 check the Client ID.", true);
-      return;
-    }
-    document.getElementById("gh-device-code").textContent = codeData.user_code;
-    document.getElementById("gh-device-prompt").classList.remove("hidden");
-    document.getElementById("connect-github-btn").disabled = true;
-    window.open(codeData.verification_uri, "_blank");
-    const interval = (codeData.interval ?? 5) * 1e3;
-    const expiresAt = Date.now() + (codeData.expires_in ?? 900) * 1e3;
-    const poll = async () => {
-      if (Date.now() > expiresAt) {
-        showStatus("Code expired \u2014 try again.", true);
-        resetDevicePrompt();
-        return;
-      }
-      let tokenData;
-      try {
-        const res = await fetch("https://github.com/login/oauth/access_token", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Accept: "application/json"
-          },
-          body: new URLSearchParams({
-            client_id: clientId,
-            device_code: codeData.device_code,
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-          }).toString()
-        });
-        tokenData = await res.json();
-      } catch {
-        ghPollTimer = setTimeout(poll, interval);
-        return;
-      }
-      if (tokenData.access_token) {
-        resetDevicePrompt();
-        await onGitHubToken(clientId, tokenData.access_token);
-      } else if (tokenData.error === "authorization_pending" || tokenData.error === "slow_down") {
-        ghPollTimer = setTimeout(poll, tokenData.error === "slow_down" ? interval + 5e3 : interval);
-      } else {
-        showStatus(`GitHub auth failed: ${tokenData.error_description ?? tokenData.error}`, true);
-        resetDevicePrompt();
-      }
-    };
-    ghPollTimer = setTimeout(poll, interval);
-  }
-  function resetDevicePrompt() {
-    document.getElementById("gh-device-prompt").classList.add("hidden");
-    document.getElementById("connect-github-btn").disabled = false;
-    if (ghPollTimer) {
-      clearTimeout(ghPollTimer);
-      ghPollTimer = null;
-    }
-  }
-  async function onGitHubToken(clientId, token) {
-    let username = "";
+  async function connectGitHubWithToken(token) {
+    showStatus("Connecting\u2026", false);
     try {
       const res = await fetch("https://api.github.com/user", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const u = await res.json();
-      username = u.login;
-    } catch {
-      showStatus("Connected but could not fetch username.", true);
-      return;
-    }
-    const repoName = settings.github?.repo || "styl-data";
-    settings.github = { owner: username, repo: repoName, branch: "main", token, clientId };
-    await Storage.setSettings(settings);
-    showStatus(`Creating ${username}/${repoName}\u2026`, false);
-    try {
+      if (!res.ok) {
+        showStatus("Invalid token \u2014 make sure you copied the full token.", true);
+        return;
+      }
+      const { login } = await res.json();
+      const repoName = settings.github?.repo || "styl-data";
+      settings.github = { owner: login, repo: repoName, branch: "main", token };
+      await Storage.setSettings(settings);
+      showStatus(`Creating ${login}/${repoName}\u2026`, false);
       const gh = new GitHubClient(settings.github);
       await gh.createRepo(repoName);
       await gh.bootstrap();
-      showStatus(`Connected as @${username} \u2014 repo ready!`, false);
+      notifyBackground();
+      updateGitHubUI();
+      showStatus(`Connected as @${login} \u2014 repo ready!`, false);
     } catch (e) {
-      showStatus(`Repo setup failed: ${e.message}`, true);
+      showStatus(`Connection failed: ${e.message}`, true);
     }
-    notifyBackground();
-    updateGitHubUI();
   }
   async function populateRepoSelect(owner, token) {
     const select = document.getElementById("gh-repo-select");
@@ -576,14 +482,18 @@
       });
     });
   }
-  document.getElementById("connect-github-btn").addEventListener("click", connectGitHub);
+  document.getElementById("open-github-pat-btn").addEventListener("click", () => {
+    window.open(
+      "https://github.com/settings/tokens/new?scopes=repo&description=Styl+browser+extension",
+      "_blank"
+    );
+  });
+  document.getElementById("gh-token-paste").addEventListener("input", async () => {
+    const token = getVal("gh-token-paste");
+    if (token.length >= 40) await connectGitHubWithToken(token);
+  });
   document.getElementById("disconnect-github-btn").addEventListener("click", disconnectGitHub);
   document.getElementById("test-github-btn").addEventListener("click", testGitHub);
-  document.getElementById("gh-client-id").addEventListener("input", updateGitHubButtonState);
-  document.getElementById("copy-device-code").addEventListener("click", () => {
-    const code = document.getElementById("gh-device-code").textContent ?? "";
-    navigator.clipboard.writeText(code).then(() => showStatus("Code copied!", false));
-  });
   document.getElementById("gh-repo-select").addEventListener("change", async () => {
     if (!settings.github) return;
     const repo = document.getElementById("gh-repo-select").value;
