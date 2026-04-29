@@ -149,6 +149,7 @@
     breakDuration: 5 * 60,
     longBreakDuration: 15 * 60
   };
+  var ghPollTimer = null;
   async function init() {
     const saved = await Storage.getSettings();
     if (saved) settings = saved;
@@ -156,10 +157,11 @@
     showRedirectUri();
   }
   function populateForm() {
-    setVal("gh-owner", settings.github?.owner ?? "");
-    setVal("gh-repo", settings.github?.repo ?? "");
-    setVal("gh-token", settings.github?.token ?? "");
+    if (settings.github?.clientId) {
+      setVal("gh-client-id", settings.github.clientId);
+    }
     setVal("gh-branch", settings.github?.branch ?? "main");
+    updateGitHubUI();
     setVal("ai-provider", settings.ai?.provider ?? "anthropic");
     setVal("ai-key", settings.ai?.apiKey ?? "");
     setVal("ai-model", settings.ai?.model ?? "");
@@ -168,10 +170,170 @@
     setVal("focus-dur", String(Math.round((settings.focusDuration ?? 25 * 60) / 60)));
     setVal("break-dur", String(Math.round((settings.breakDuration ?? 5 * 60) / 60)));
     setVal("long-break-dur", String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
-    if (settings.google?.clientId) {
-      setVal("google-client-id", settings.google.clientId);
-    }
+    if (settings.google?.clientId) setVal("google-client-id", settings.google.clientId);
     updateGoogleUI();
+  }
+  function updateGitHubUI() {
+    const connected = document.getElementById("github-connected");
+    const disconnected = document.getElementById("github-disconnected");
+    if (settings.github?.token && settings.github?.owner) {
+      connected.classList.remove("hidden");
+      disconnected.classList.add("hidden");
+      document.getElementById("github-account-label").textContent = `@${settings.github.owner}`;
+      document.getElementById("github-account-sub").textContent = settings.github.repo ? `/${settings.github.repo}` : "No repo selected";
+      setVal("gh-branch", settings.github.branch || "main");
+      populateRepoSelect(settings.github.owner, settings.github.token);
+    } else {
+      connected.classList.add("hidden");
+      disconnected.classList.remove("hidden");
+      updateGitHubButtonState();
+    }
+  }
+  function updateGitHubButtonState() {
+    const btn = document.getElementById("connect-github-btn");
+    btn.disabled = !getVal("gh-client-id");
+  }
+  async function connectGitHub() {
+    const clientId = getVal("gh-client-id");
+    if (!clientId) {
+      showStatus("Enter your GitHub OAuth App Client ID first.", true);
+      return;
+    }
+    showStatus("Requesting device code\u2026", false);
+    let codeData;
+    try {
+      const res = await fetch("https://github.com/login/device/code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ client_id: clientId, scope: "repo" })
+      });
+      codeData = await res.json();
+    } catch (e) {
+      showStatus(`Failed to reach GitHub: ${e.message}`, true);
+      return;
+    }
+    if (codeData.error) {
+      showStatus(`GitHub error: ${codeData.error}`, true);
+      return;
+    }
+    document.getElementById("gh-device-code").textContent = codeData.user_code;
+    document.getElementById("gh-device-prompt").classList.remove("hidden");
+    document.getElementById("connect-github-btn").disabled = true;
+    window.open(codeData.verification_uri, "_blank");
+    const interval = (codeData.interval ?? 5) * 1e3;
+    const expiresAt = Date.now() + (codeData.expires_in ?? 900) * 1e3;
+    const poll = async () => {
+      if (Date.now() > expiresAt) {
+        showStatus("Code expired \u2014 try again.", true);
+        resetDevicePrompt();
+        return;
+      }
+      let tokenData;
+      try {
+        const res = await fetch("https://github.com/login/oauth/access_token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            client_id: clientId,
+            device_code: codeData.device_code,
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+          })
+        });
+        tokenData = await res.json();
+      } catch {
+        ghPollTimer = setTimeout(poll, interval);
+        return;
+      }
+      if (tokenData.access_token) {
+        resetDevicePrompt();
+        await onGitHubToken(clientId, tokenData.access_token);
+      } else if (tokenData.error === "authorization_pending" || tokenData.error === "slow_down") {
+        ghPollTimer = setTimeout(poll, tokenData.error === "slow_down" ? interval + 5e3 : interval);
+      } else {
+        showStatus(`GitHub auth failed: ${tokenData.error_description ?? tokenData.error}`, true);
+        resetDevicePrompt();
+      }
+    };
+    ghPollTimer = setTimeout(poll, interval);
+  }
+  function resetDevicePrompt() {
+    document.getElementById("gh-device-prompt").classList.add("hidden");
+    document.getElementById("connect-github-btn").disabled = false;
+    if (ghPollTimer) {
+      clearTimeout(ghPollTimer);
+      ghPollTimer = null;
+    }
+  }
+  async function onGitHubToken(clientId, token) {
+    let username = "";
+    try {
+      const res = await fetch("https://api.github.com/user", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const u = await res.json();
+      username = u.login;
+    } catch {
+      showStatus("Connected but could not fetch username.", true);
+      return;
+    }
+    settings.github = {
+      owner: username,
+      repo: settings.github?.repo ?? "",
+      branch: settings.github?.branch ?? "main",
+      token,
+      clientId
+    };
+    await Storage.setSettings(settings);
+    notifyBackground();
+    updateGitHubUI();
+    showStatus(`Connected as @${username}!`, false);
+  }
+  async function populateRepoSelect(owner, token) {
+    const select = document.getElementById("gh-repo-select");
+    select.innerHTML = '<option value="">Loading\u2026</option>';
+    try {
+      const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const repos = await res.json();
+      select.innerHTML = '<option value="">\u2014 pick a repository \u2014</option>';
+      repos.forEach((r) => {
+        const opt = document.createElement("option");
+        opt.value = r.name;
+        opt.textContent = `${owner}/${r.name}${r.private ? " \u{1F512}" : ""}`;
+        if (r.name === settings.github?.repo) opt.selected = true;
+        select.appendChild(opt);
+      });
+    } catch {
+      select.innerHTML = '<option value="">Could not load repos</option>';
+    }
+  }
+  async function disconnectGitHub() {
+    if (ghPollTimer) {
+      clearTimeout(ghPollTimer);
+      ghPollTimer = null;
+    }
+    settings.github = null;
+    await Storage.setSettings(settings);
+    notifyBackground();
+    updateGitHubUI();
+    showStatus("GitHub disconnected.", false);
+  }
+  async function testGitHub() {
+    if (!settings.github?.token || !settings.github?.repo) {
+      showStatus("Connect GitHub and pick a repo first.", true);
+      return;
+    }
+    showStatus("Testing\u2026", false);
+    const gh = new GitHubClient(settings.github);
+    const { ok, error } = await gh.testConnection();
+    if (ok) {
+      showStatus("GitHub connected! Bootstrapping repo\u2026", false);
+      await gh.bootstrap();
+      showStatus("GitHub ready.", false);
+    } else {
+      showStatus(`GitHub error: ${error ?? "unknown"}`, true);
+    }
   }
   function showRedirectUri() {
     try {
@@ -209,7 +371,7 @@
     const clientId = getVal("google-client-id");
     const clientSecret = getVal("google-client-secret");
     if (!clientId || !clientSecret) {
-      showStatus("Enter your Client ID and Client Secret first.", true);
+      showStatus("Enter Client ID and Client Secret first.", true);
       return;
     }
     const redirectUri = browser.identity.getRedirectURL();
@@ -250,12 +412,8 @@
         }).toString()
       });
       const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error_description ?? data.error);
-      }
-      if (!data.access_token) {
-        throw new Error("No access token in response");
-      }
+      if (data.error) throw new Error(data.error_description ?? data.error);
+      if (!data.access_token) throw new Error("No access token in response");
       settings.google = {
         clientId,
         clientSecret,
@@ -284,18 +442,14 @@
   function collectSettings() {
     const provider = getVal("ai-provider");
     return {
-      github: {
-        owner: getVal("gh-owner"),
-        repo: getVal("gh-repo"),
-        token: getVal("gh-token"),
-        branch: getVal("gh-branch") || "main"
-      },
+      // GitHub is managed by the OAuth flow — only sync branch from the form
+      github: settings.github ? { ...settings.github, branch: getVal("gh-branch") || "main" } : null,
       ai: {
         provider,
         apiKey: getVal("ai-key"),
         model: getVal("ai-model") || defaultModel(provider)
       },
-      // Google is managed entirely by the OAuth flow — never overwrite from the save button
+      // Google is managed by the OAuth flow
       google: settings.google,
       autoApproveAI: getCheck("auto-approve"),
       focusDuration: parseInt(getVal("focus-dur"), 10) * 60 || 25 * 60,
@@ -315,27 +469,6 @@
       port.postMessage({ type: "settingsUpdated", settings });
       port.disconnect();
     } catch {
-    }
-  }
-  async function testGitHub() {
-    const cfg = {
-      owner: getVal("gh-owner"),
-      repo: getVal("gh-repo"),
-      token: getVal("gh-token"),
-      branch: getVal("gh-branch") || "main"
-    };
-    if (!cfg.owner || !cfg.repo || !cfg.token) {
-      showStatus("Fill in all GitHub fields first.", true);
-      return;
-    }
-    showStatus("Testing\u2026", false);
-    const gh = new GitHubClient(cfg);
-    const { ok, error } = await gh.testConnection();
-    if (ok) {
-      showStatus("GitHub connected!", false);
-      await gh.bootstrap();
-    } else {
-      showStatus(`GitHub error: ${error ?? "unknown"}`, true);
     }
   }
   async function loadSnapshots() {
@@ -386,15 +519,14 @@
     el.textContent = msg;
     el.className = `status-msg ${isError ? "error" : "ok"}`;
     el.classList.remove("hidden");
-    setTimeout(() => el.classList.add("hidden"), 4e3);
+    setTimeout(() => el.classList.add("hidden"), 5e3);
   }
   function defaultModel(provider) {
     return provider === "anthropic" ? "claude-haiku-4-5-20251001" : "gpt-4o-mini";
   }
   function updateModelPlaceholder() {
     const provider = getVal("ai-provider");
-    const input = document.getElementById("ai-model");
-    input.placeholder = defaultModel(provider);
+    document.getElementById("ai-model").placeholder = defaultModel(provider);
   }
   function initTabs() {
     document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -408,17 +540,39 @@
       });
     });
   }
-  document.getElementById("save-btn").addEventListener("click", save);
+  document.getElementById("connect-github-btn").addEventListener("click", connectGitHub);
+  document.getElementById("disconnect-github-btn").addEventListener("click", disconnectGitHub);
   document.getElementById("test-github-btn").addEventListener("click", testGitHub);
+  document.getElementById("gh-client-id").addEventListener("input", updateGitHubButtonState);
+  document.getElementById("copy-device-code").addEventListener("click", () => {
+    const code = document.getElementById("gh-device-code").textContent ?? "";
+    navigator.clipboard.writeText(code).then(() => showStatus("Code copied!", false));
+  });
+  document.getElementById("gh-repo-select").addEventListener("change", async () => {
+    if (!settings.github) return;
+    const repo = document.getElementById("gh-repo-select").value;
+    settings.github = { ...settings.github, repo };
+    await Storage.setSettings(settings);
+    notifyBackground();
+    document.getElementById("github-account-sub").textContent = repo ? `/${repo}` : "No repo selected";
+    if (repo) showStatus(`Repo set to ${settings.github.owner}/${repo}.`, false);
+  });
+  document.getElementById("gh-branch").addEventListener("change", async () => {
+    if (!settings.github) return;
+    settings.github = { ...settings.github, branch: getVal("gh-branch") || "main" };
+    await Storage.setSettings(settings);
+    notifyBackground();
+  });
   document.getElementById("connect-google-btn").addEventListener("click", connectGoogle);
   document.getElementById("disconnect-google-btn").addEventListener("click", disconnectGoogle);
   document.getElementById("copy-redirect-uri").addEventListener("click", () => {
     const uri = document.getElementById("redirect-uri-display").textContent ?? "";
     navigator.clipboard.writeText(uri).then(() => showStatus("Copied!", false));
   });
-  document.getElementById("ai-provider").addEventListener("change", updateModelPlaceholder);
   document.getElementById("google-client-id").addEventListener("input", updateGoogleButtonState);
   document.getElementById("google-client-secret").addEventListener("input", updateGoogleButtonState);
+  document.getElementById("save-btn").addEventListener("click", save);
+  document.getElementById("ai-provider").addEventListener("change", updateModelPlaceholder);
   initTabs();
   init();
 })();

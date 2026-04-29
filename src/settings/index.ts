@@ -2,7 +2,7 @@ import type { AppSettings, AIProvider, GitHubConfig } from '../shared/types';
 import { Storage } from '../shared/storage';
 import { GitHubClient } from '../background/github';
 
-// ── Load settings on boot ─────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 
 let settings: AppSettings = {
   github:            null,
@@ -14,6 +14,9 @@ let settings: AppSettings = {
   longBreakDuration: 15 * 60,
 };
 
+/** Timer ID for GitHub device-code polling */
+let ghPollTimer: ReturnType<typeof setTimeout> | null = null;
+
 async function init() {
   const saved = await Storage.getSettings();
   if (saved) settings = saved;
@@ -24,11 +27,12 @@ async function init() {
 // ── Populate form fields from settings ───────────────────────────────────────
 
 function populateForm() {
-  // GitHub
-  setVal('gh-owner',  settings.github?.owner  ?? '');
-  setVal('gh-repo',   settings.github?.repo   ?? '');
-  setVal('gh-token',  settings.github?.token  ?? '');
+  // GitHub — if connected, populate connected UI
+  if (settings.github?.clientId) {
+    setVal('gh-client-id', settings.github.clientId);
+  }
   setVal('gh-branch', settings.github?.branch ?? 'main');
+  updateGitHubUI();
 
   // AI
   setVal('ai-provider', settings.ai?.provider ?? 'anthropic');
@@ -42,11 +46,200 @@ function populateForm() {
   setVal('break-dur',      String(Math.round((settings.breakDuration    ?? 5  * 60) / 60)));
   setVal('long-break-dur', String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
 
-  // Google — restore saved Client ID into form so user doesn't have to re-enter
-  if (settings.google?.clientId) {
-    setVal('google-client-id', settings.google.clientId);
-  }
+  // Google — restore saved Client ID into form
+  if (settings.google?.clientId) setVal('google-client-id', settings.google.clientId);
   updateGoogleUI();
+}
+
+// ── GitHub Device Flow ────────────────────────────────────────────────────────
+
+function updateGitHubUI() {
+  const connected    = document.getElementById('github-connected')    as HTMLElement;
+  const disconnected = document.getElementById('github-disconnected') as HTMLElement;
+
+  if (settings.github?.token && settings.github?.owner) {
+    connected.classList.remove('hidden');
+    disconnected.classList.add('hidden');
+    (document.getElementById('github-account-label') as HTMLElement).textContent =
+      `@${settings.github.owner}`;
+    (document.getElementById('github-account-sub') as HTMLElement).textContent =
+      settings.github.repo ? `/${settings.github.repo}` : 'No repo selected';
+    setVal('gh-branch', settings.github.branch || 'main');
+    populateRepoSelect(settings.github.owner, settings.github.token);
+  } else {
+    connected.classList.add('hidden');
+    disconnected.classList.remove('hidden');
+    updateGitHubButtonState();
+  }
+}
+
+function updateGitHubButtonState() {
+  const btn = document.getElementById('connect-github-btn') as HTMLButtonElement;
+  btn.disabled = !getVal('gh-client-id');
+}
+
+async function connectGitHub() {
+  const clientId = getVal('gh-client-id');
+  if (!clientId) {
+    showStatus('Enter your GitHub OAuth App Client ID first.', true);
+    return;
+  }
+
+  // Step 1: Request device & user codes
+  showStatus('Requesting device code…', false);
+  let codeData: {
+    device_code:      string;
+    user_code:        string;
+    verification_uri: string;
+    expires_in:       number;
+    interval:         number;
+    error?:           string;
+  };
+
+  try {
+    const res = await fetch('https://github.com/login/device/code', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body:    JSON.stringify({ client_id: clientId, scope: 'repo' }),
+    });
+    codeData = await res.json();
+  } catch (e) {
+    showStatus(`Failed to reach GitHub: ${(e as Error).message}`, true);
+    return;
+  }
+
+  if (codeData.error) {
+    showStatus(`GitHub error: ${codeData.error}`, true);
+    return;
+  }
+
+  // Step 2: Show user code and open github.com/login/device
+  (document.getElementById('gh-device-code') as HTMLElement).textContent = codeData.user_code;
+  (document.getElementById('gh-device-prompt') as HTMLElement).classList.remove('hidden');
+  (document.getElementById('connect-github-btn') as HTMLButtonElement).disabled = true;
+  window.open(codeData.verification_uri, '_blank');
+
+  // Step 3: Poll for the token
+  const interval  = (codeData.interval ?? 5) * 1000;
+  const expiresAt = Date.now() + (codeData.expires_in ?? 900) * 1000;
+
+  const poll = async () => {
+    if (Date.now() > expiresAt) {
+      showStatus('Code expired — try again.', true);
+      resetDevicePrompt();
+      return;
+    }
+
+    let tokenData: { access_token?: string; error?: string; error_description?: string };
+    try {
+      const res = await fetch('https://github.com/login/oauth/access_token', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body:    JSON.stringify({
+          client_id:   clientId,
+          device_code: codeData.device_code,
+          grant_type:  'urn:ietf:params:oauth:grant-type:device_code',
+        }),
+      });
+      tokenData = await res.json();
+    } catch {
+      ghPollTimer = setTimeout(poll, interval);
+      return;
+    }
+
+    if (tokenData.access_token) {
+      resetDevicePrompt();
+      await onGitHubToken(clientId, tokenData.access_token);
+    } else if (tokenData.error === 'authorization_pending' || tokenData.error === 'slow_down') {
+      ghPollTimer = setTimeout(poll, tokenData.error === 'slow_down' ? interval + 5000 : interval);
+    } else {
+      showStatus(`GitHub auth failed: ${tokenData.error_description ?? tokenData.error}`, true);
+      resetDevicePrompt();
+    }
+  };
+
+  ghPollTimer = setTimeout(poll, interval);
+}
+
+function resetDevicePrompt() {
+  (document.getElementById('gh-device-prompt')    as HTMLElement).classList.add('hidden');
+  (document.getElementById('connect-github-btn') as HTMLButtonElement).disabled = false;
+  if (ghPollTimer) { clearTimeout(ghPollTimer); ghPollTimer = null; }
+}
+
+async function onGitHubToken(clientId: string, token: string) {
+  // Fetch authenticated user's username
+  let username = '';
+  try {
+    const res = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const u = await res.json() as { login: string };
+    username = u.login;
+  } catch {
+    showStatus('Connected but could not fetch username.', true);
+    return;
+  }
+
+  settings.github = {
+    owner:    username,
+    repo:     settings.github?.repo     ?? '',
+    branch:   settings.github?.branch   ?? 'main',
+    token,
+    clientId,
+  };
+  await Storage.setSettings(settings);
+  notifyBackground();
+  updateGitHubUI();
+  showStatus(`Connected as @${username}!`, false);
+}
+
+async function populateRepoSelect(owner: string, token: string) {
+  const select = document.getElementById('gh-repo-select') as HTMLSelectElement;
+  select.innerHTML = '<option value="">Loading…</option>';
+
+  try {
+    const res   = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const repos = await res.json() as Array<{ name: string; private: boolean }>;
+
+    select.innerHTML = '<option value="">— pick a repository —</option>';
+    repos.forEach((r) => {
+      const opt = document.createElement('option');
+      opt.value       = r.name;
+      opt.textContent = `${owner}/${r.name}${r.private ? ' 🔒' : ''}`;
+      if (r.name === settings.github?.repo) opt.selected = true;
+      select.appendChild(opt);
+    });
+  } catch {
+    select.innerHTML = '<option value="">Could not load repos</option>';
+  }
+}
+
+async function disconnectGitHub() {
+  if (ghPollTimer) { clearTimeout(ghPollTimer); ghPollTimer = null; }
+  settings.github = null;
+  await Storage.setSettings(settings);
+  notifyBackground();
+  updateGitHubUI();
+  showStatus('GitHub disconnected.', false);
+}
+
+async function testGitHub() {
+  if (!settings.github?.token || !settings.github?.repo) {
+    showStatus('Connect GitHub and pick a repo first.', true); return;
+  }
+  showStatus('Testing…', false);
+  const gh = new GitHubClient(settings.github);
+  const { ok, error } = await gh.testConnection();
+  if (ok) {
+    showStatus('GitHub connected! Bootstrapping repo…', false);
+    await gh.bootstrap();
+    showStatus('GitHub ready.', false);
+  } else {
+    showStatus(`GitHub error: ${error ?? 'unknown'}`, true);
+  }
 }
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
@@ -91,10 +284,8 @@ function updateGoogleButtonState() {
 async function connectGoogle() {
   const clientId     = getVal('google-client-id');
   const clientSecret = getVal('google-client-secret');
-
   if (!clientId || !clientSecret) {
-    showStatus('Enter your Client ID and Client Secret first.', true);
-    return;
+    showStatus('Enter Client ID and Client Secret first.', true); return;
   }
 
   const redirectUri = browser.identity.getRedirectURL();
@@ -114,15 +305,11 @@ async function connectGoogle() {
   try {
     redirectUrl = await browser.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
   } catch (e) {
-    showStatus(`Sign-in cancelled: ${(e as Error).message}`, true);
-    return;
+    showStatus(`Sign-in cancelled: ${(e as Error).message}`, true); return;
   }
 
   const code = new URL(redirectUrl).searchParams.get('code');
-  if (!code) {
-    showStatus('No authorization code returned.', true);
-    return;
-  }
+  if (!code) { showStatus('No authorization code returned.', true); return; }
 
   showStatus('Connecting…', false);
   try {
@@ -130,11 +317,8 @@ async function connectGoogle() {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body:    new URLSearchParams({
-        code,
-        client_id:     clientId,
-        client_secret: clientSecret,
-        redirect_uri:  redirectUri,
-        grant_type:    'authorization_code',
+        code, client_id: clientId, client_secret: clientSecret,
+        redirect_uri: redirectUri, grant_type: 'authorization_code',
       }).toString(),
     });
     const data = await res.json() as {
@@ -144,17 +328,11 @@ async function connectGoogle() {
       error?:         string;
       error_description?: string;
     };
-
-    if (data.error) {
-      throw new Error(data.error_description ?? data.error);
-    }
-    if (!data.access_token) {
-      throw new Error('No access token in response');
-    }
+    if (data.error) throw new Error(data.error_description ?? data.error);
+    if (!data.access_token) throw new Error('No access token in response');
 
     settings.google = {
-      clientId,
-      clientSecret,
+      clientId, clientSecret,
       accessToken:     data.access_token,
       refreshToken:    data.refresh_token,
       tokenExpiry:     Date.now() + (data.expires_in ?? 3600) * 1000,
@@ -184,18 +362,16 @@ function disconnectGoogle() {
 function collectSettings(): AppSettings {
   const provider = getVal('ai-provider') as AIProvider;
   return {
-    github: {
-      owner:  getVal('gh-owner'),
-      repo:   getVal('gh-repo'),
-      token:  getVal('gh-token'),
-      branch: getVal('gh-branch') || 'main',
-    },
+    // GitHub is managed by the OAuth flow — only sync branch from the form
+    github: settings.github
+      ? { ...settings.github, branch: getVal('gh-branch') || 'main' }
+      : null,
     ai: {
       provider,
       apiKey: getVal('ai-key'),
       model:  getVal('ai-model') || defaultModel(provider),
     },
-    // Google is managed entirely by the OAuth flow — never overwrite from the save button
+    // Google is managed by the OAuth flow
     google:            settings.google,
     autoApproveAI:     getCheck('auto-approve'),
     focusDuration:     parseInt(getVal('focus-dur'),      10) * 60 || 25 * 60,
@@ -219,29 +395,6 @@ function notifyBackground() {
     port.postMessage({ type: 'settingsUpdated', settings });
     port.disconnect();
   } catch { /* background may not be listening; that's OK */ }
-}
-
-// ── GitHub test ───────────────────────────────────────────────────────────────
-
-async function testGitHub() {
-  const cfg: GitHubConfig = {
-    owner:  getVal('gh-owner'),
-    repo:   getVal('gh-repo'),
-    token:  getVal('gh-token'),
-    branch: getVal('gh-branch') || 'main',
-  };
-  if (!cfg.owner || !cfg.repo || !cfg.token) {
-    showStatus('Fill in all GitHub fields first.', true); return;
-  }
-  showStatus('Testing…', false);
-  const gh = new GitHubClient(cfg);
-  const { ok, error } = await gh.testConnection();
-  if (ok) {
-    showStatus('GitHub connected!', false);
-    await gh.bootstrap();
-  } else {
-    showStatus(`GitHub error: ${error ?? 'unknown'}`, true);
-  }
 }
 
 // ── Snapshot history ──────────────────────────────────────────────────────────
@@ -296,7 +449,7 @@ function showStatus(msg: string, isError: boolean) {
   el.textContent = msg;
   el.className   = `status-msg ${isError ? 'error' : 'ok'}`;
   el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 4000);
+  setTimeout(() => el.classList.add('hidden'), 5000);
 }
 
 function defaultModel(provider: AIProvider): string {
@@ -305,8 +458,7 @@ function defaultModel(provider: AIProvider): string {
 
 function updateModelPlaceholder() {
   const provider = getVal('ai-provider') as AIProvider;
-  const input    = document.getElementById('ai-model') as HTMLInputElement;
-  input.placeholder = defaultModel(provider);
+  (document.getElementById('ai-model') as HTMLInputElement).placeholder = defaultModel(provider);
 }
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
@@ -326,17 +478,45 @@ function initTabs() {
 
 // ── Wire events ───────────────────────────────────────────────────────────────
 
-document.getElementById('save-btn')!.addEventListener('click', save);
+// GitHub
+document.getElementById('connect-github-btn')!.addEventListener('click', connectGitHub);
+document.getElementById('disconnect-github-btn')!.addEventListener('click', disconnectGitHub);
 document.getElementById('test-github-btn')!.addEventListener('click', testGitHub);
+document.getElementById('gh-client-id')!.addEventListener('input', updateGitHubButtonState);
+document.getElementById('copy-device-code')!.addEventListener('click', () => {
+  const code = (document.getElementById('gh-device-code') as HTMLElement).textContent ?? '';
+  navigator.clipboard.writeText(code).then(() => showStatus('Code copied!', false));
+});
+document.getElementById('gh-repo-select')!.addEventListener('change', async () => {
+  if (!settings.github) return;
+  const repo = (document.getElementById('gh-repo-select') as HTMLSelectElement).value;
+  settings.github = { ...settings.github, repo };
+  await Storage.setSettings(settings);
+  notifyBackground();
+  (document.getElementById('github-account-sub') as HTMLElement).textContent =
+    repo ? `/${repo}` : 'No repo selected';
+  if (repo) showStatus(`Repo set to ${settings.github.owner}/${repo}.`, false);
+});
+document.getElementById('gh-branch')!.addEventListener('change', async () => {
+  if (!settings.github) return;
+  settings.github = { ...settings.github, branch: getVal('gh-branch') || 'main' };
+  await Storage.setSettings(settings);
+  notifyBackground();
+});
+
+// Google
 document.getElementById('connect-google-btn')!.addEventListener('click', connectGoogle);
 document.getElementById('disconnect-google-btn')!.addEventListener('click', disconnectGoogle);
 document.getElementById('copy-redirect-uri')!.addEventListener('click', () => {
   const uri = (document.getElementById('redirect-uri-display') as HTMLElement).textContent ?? '';
   navigator.clipboard.writeText(uri).then(() => showStatus('Copied!', false));
 });
-document.getElementById('ai-provider')!.addEventListener('change', updateModelPlaceholder);
 document.getElementById('google-client-id')!.addEventListener('input', updateGoogleButtonState);
 document.getElementById('google-client-secret')!.addEventListener('input', updateGoogleButtonState);
+
+// AI + general
+document.getElementById('save-btn')!.addEventListener('click', save);
+document.getElementById('ai-provider')!.addEventListener('change', updateModelPlaceholder);
 
 initTabs();
 init();

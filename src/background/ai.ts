@@ -136,7 +136,15 @@ export function applyActions(
   const newMem  = JSON.parse(JSON.stringify(memory)) as Memory;
   const calReqs: ApplyResult['calendarRequests'] = [];
 
-  for (const action of actions) {
+  for (const rawAction of actions) {
+    // Normalise to snake_case so camelCase variants (createTask → create_task) still match
+    const action = {
+      ...rawAction,
+      type: (rawAction.type as string)
+        .replace(/([a-z])([A-Z])/g, '$1_$2')
+        .toLowerCase()
+        .replace(/-/g, '_') as typeof rawAction.type,
+    };
     switch (action.type) {
 
       case 'create_task': {

@@ -211,7 +211,13 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
           msg.prompt, appState.tasks, appState.memory, appState.calendarCache, msg.imageData
         );
 
-        if (settings.autoApproveAI || !res.requiresApproval) {
+        // Only hold for approval when deleting tasks and auto-approve is off.
+        // Creates, updates, and plan actions apply immediately — prevents the AI from
+        // saying "I added your task" while the task sits unapplied behind a diff overlay.
+        const hasDeletes = res.actions.some((a) => a.type === 'delete_task');
+        const needsApproval = !settings.autoApproveAI && hasDeletes;
+
+        if (!needsApproval) {
           await doApplyAI(res, msg.prompt, port);
         } else {
           const { tasks: preview } = applyActions(appState.tasks, appState.memory, res.actions);
@@ -333,13 +339,19 @@ async function doApplyAI(
   await persistState();
   broadcastState();
 
+  let calendarNote = '';
   if (calendarRequests.length) {
-    ensureGoogleToken().then((tok) => {
-      if (tok) {
+    const tok = await ensureGoogleToken();
+    if (!tok) {
+      calendarNote = '\n\n⚠ Google Calendar not connected — event not saved. Connect it in Settings.';
+    } else {
+      try {
         const cal = new CalendarClient(tok);
-        calendarRequests.forEach((r) => cal.createEvent(r).catch(console.warn));
+        await Promise.all(calendarRequests.map((r) => cal.createEvent(r)));
+      } catch (e) {
+        calendarNote = `\n\n⚠ Calendar error: ${(e as Error).message}`;
       }
-    });
+    }
   }
 
   if (settings.github) {
@@ -348,7 +360,7 @@ async function doApplyAI(
       .catch(console.warn);
   }
 
-  port.postMessage({ type: 'aiComplete', message: response.message });
+  port.postMessage({ type: 'aiComplete', message: response.message + calendarNote });
 }
 
 // ── GitHub sync ───────────────────────────────────────────────────────────────

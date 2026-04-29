@@ -378,7 +378,11 @@ User: ${prompt}` });
     let newTasks = [...tasks];
     const newMem = JSON.parse(JSON.stringify(memory));
     const calReqs = [];
-    for (const action of actions) {
+    for (const rawAction of actions) {
+      const action = {
+        ...rawAction,
+        type: rawAction.type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().replace(/-/g, "_")
+      };
       switch (action.type) {
         case "create_task": {
           const p = action.payload;
@@ -776,7 +780,9 @@ ${JSON.stringify(calendar, null, 2)}`
             appState.calendarCache,
             msg.imageData
           );
-          if (settings.autoApproveAI || !res.requiresApproval) {
+          const hasDeletes = res.actions.some((a) => a.type === "delete_task");
+          const needsApproval = !settings.autoApproveAI && hasDeletes;
+          if (!needsApproval) {
             await doApplyAI(res, msg.prompt, port);
           } else {
             const { tasks: preview } = applyActions(appState.tasks, appState.memory, res.actions);
@@ -889,19 +895,27 @@ ${JSON.stringify(calendar, null, 2)}`
     appState.memory = memory;
     await persistState();
     broadcastState();
+    let calendarNote = "";
     if (calendarRequests.length) {
-      ensureGoogleToken().then((tok) => {
-        if (tok) {
+      const tok = await ensureGoogleToken();
+      if (!tok) {
+        calendarNote = "\n\n\u26A0 Google Calendar not connected \u2014 event not saved. Connect it in Settings.";
+      } else {
+        try {
           const cal = new CalendarClient(tok);
-          calendarRequests.forEach((r) => cal.createEvent(r).catch(console.warn));
+          await Promise.all(calendarRequests.map((r) => cal.createEvent(r)));
+        } catch (e) {
+          calendarNote = `
+
+\u26A0 Calendar error: ${e.message}`;
         }
-      });
+      }
     }
     if (settings.github) {
       const gh = new GitHubClient(settings.github);
       commitChange(gh, before, tasks, memory, prompt, response.actions.map((a) => a.type)).catch(console.warn);
     }
-    port.postMessage({ type: "aiComplete", message: response.message });
+    port.postMessage({ type: "aiComplete", message: response.message + calendarNote });
   }
   async function syncFromGitHub() {
     if (!settings.github) return;

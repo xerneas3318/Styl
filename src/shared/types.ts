@@ -56,10 +56,11 @@ export interface TimerState {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export interface GitHubConfig {
-  owner:  string;
-  repo:   string;
-  token:  string;
-  branch: string;
+  owner:    string;
+  repo:     string;
+  token:    string;
+  branch:   string;
+  clientId?: string;   // GitHub OAuth App client_id (for Device Flow setup)
 }
 
 export interface AIConfig {
@@ -69,9 +70,12 @@ export interface AIConfig {
 }
 
 export interface GoogleConfig {
-  accessToken?:  string;
-  tokenExpiry?:  number;   // epoch ms
-  gmailEnabled:  boolean;
+  clientId:       string;
+  clientSecret:   string;
+  accessToken?:   string;
+  refreshToken?:  string;
+  tokenExpiry?:   number;   // epoch ms
+  gmailEnabled:   boolean;
   calendarEnabled: boolean;
 }
 
