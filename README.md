@@ -2,11 +2,11 @@
 
 A Firefox extension that turns your new tab into a Pomodoro timer with actual focus features.
 
-I built this because every Pomodoro tool I found either put the useful stuff behind a paywall or just didn't have it. Site blocking, custom durations, session tracking — all either missing or locked. So I made my own.
+I built this because every Pomodoro tool I found either put the useful stuff behind a paywall or just didn't have it. Site blocking, custom durations, session tracking all either missing or locked. So I made my own.
 
-The plan is to grow this into a full focus and planning coach over time. Calendar integration, task planning, session insights. That's all coming. For now it's a solid Pomodoro timer that gets out of your way.
+The plan is to grow this into a full focus and planning coach over time. Calendar integration, task planning, session insights. That's all hopefully coming (I think). For now it's a solid Pomodoro timer that completely free to use.
 
-I was also just playing around with Claude. My org gave me tokens I didn't have to pay for and I figured I'd use them to solve some personal problems. This is one of them.
+I was also just playing around with Claude and this is mostly vibecoded. My org gave me tokens I didn't have to pay for and I figured I'd use them to solve some personal problems. This is one of them.
 
 ## Features
 
