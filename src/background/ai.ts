@@ -137,6 +137,7 @@ export function applyActions(
   const calReqs: ApplyResult['calendarRequests'] = [];
 
   for (const rawAction of actions) {
+    if (!rawAction.type) continue;   // skip malformed action objects
     // Normalise to snake_case so camelCase variants (createTask → create_task) still match
     const action = {
       ...rawAction,

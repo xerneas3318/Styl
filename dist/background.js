@@ -402,6 +402,7 @@ User: ${prompt}` });
     const newMem = JSON.parse(JSON.stringify(memory));
     const calReqs = [];
     for (const rawAction of actions) {
+      if (!rawAction.type) continue;
       const action = {
         ...rawAction,
         type: rawAction.type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().replace(/-/g, "_")
