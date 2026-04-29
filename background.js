@@ -1,4 +1,4 @@
-// Moments — background timer engine
+// Styl — background timer engine
 // Manages all timer state and broadcasts updates to connected pages via ports.
 
 const DEFAULTS = {
@@ -84,10 +84,10 @@ function onTimerComplete() {
   // Play from the persistent background page — always running, no autoplay block
   playChime();
 
-  browser.notifications.create('moments-timer', {
+  browser.notifications.create('styl-timer', {
     type: 'basic',
     iconUrl: browser.runtime.getURL('icons/icon.svg'),
-    title: 'Moments',
+    title: 'Styl',
     message,
   });
 

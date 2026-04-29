@@ -1,4 +1,4 @@
-// Moments new tab controller
+// Styl new tab controller
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 68; // r=68 ≈ 427.26
 
@@ -22,7 +22,7 @@ const QUOTES = [
   "Your focus determines your reality.",
   "Progress, not perfection.",
   "Start where you are. Use what you have. Do what you can.",
-  "The present moment is the only moment available to us.",
+  "The present is the only time you truly have.",
   "One task at a time. Done well.",
   "What you do today can improve all your tomorrows.",
   "Concentrate all your thoughts upon the work at hand.",
@@ -237,18 +237,18 @@ const focusInput = document.getElementById('focus-input');
 
 function loadDailyFocus() {
   const today    = new Date().toDateString();
-  const savedDay = localStorage.getItem('moments_focus_date');
-  const savedVal = localStorage.getItem('moments_focus_text');
+  const savedDay = localStorage.getItem('styl_focus_date');
+  const savedVal = localStorage.getItem('styl_focus_text');
   if (savedDay === today && savedVal) {
     focusInput.value = savedVal;
   } else {
-    localStorage.removeItem('moments_focus_text');
-    localStorage.setItem('moments_focus_date', today);
+    localStorage.removeItem('styl_focus_text');
+    localStorage.setItem('styl_focus_date', today);
   }
 }
 
 focusInput.addEventListener('input', () =>
-  localStorage.setItem('moments_focus_text', focusInput.value));
+  localStorage.setItem('styl_focus_text', focusInput.value));
 
 // ── Quote ─────────────────────────────────────────────────────────────────────
 
@@ -259,7 +259,7 @@ function loadQuote() {
 
 // ── Wallpaper (IndexedDB — full-resolution Blob, zero quality loss) ───────────
 
-const WP_DB    = 'moments';
+const WP_DB    = 'styl';
 const WP_STORE = 'wallpaper';
 let   _db      = null;
 let   _wpUrl   = null; // active object URL, revoked on replace/remove

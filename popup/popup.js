@@ -1,4 +1,4 @@
-// Moments popup controller
+// Styl popup controller
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r=52 ≈ 326.73
 

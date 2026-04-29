@@ -1,4 +1,4 @@
-// Plays a soft ascending C-major arpeggio chime.
+// Styl — chime sound (C-major arpeggio).
 // Loaded in the background page AND content pages (popup, newtab).
 // The background page (MV2, persistent) has no autoplay restrictions so it
 // serves as the reliable trigger; content pages call it on port events.
@@ -60,6 +60,6 @@ function playChime() {
       run();
     }
   } catch (err) {
-    console.warn('Moments: chime failed —', err);
+    console.warn('Styl: chime failed —', err);
   }
 }

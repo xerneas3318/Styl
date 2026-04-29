@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
-  "name": "Moments",
+  "name": "Styl",
   "version": "1.0.0",
-  "description": "A beautiful new tab with Pomodoro focus timer",
+  "description": "A beautiful new tab with Pomodoro focus timer — by xerneas",
   "permissions": [
     "storage",
     "notifications"
@@ -14,7 +14,7 @@
   "browser_action": {
     "default_popup": "popup/popup.html",
     "default_icon": "icons/icon.svg",
-    "default_title": "Moments"
+    "default_title": "Styl"
   },
   "chrome_url_overrides": {
     "newtab": "newtab/newtab.html"
