@@ -82,6 +82,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
+  margin-top: 18px;
 }
 
 .add-min-btn {
@@ -110,7 +111,7 @@ body {
   position: relative;
   width: 140px;
   height: 140px;
-  margin: 18px auto 0;
+  flex-shrink: 0;
 }
 
 .ring-svg { width: 140px; height: 140px; transform: rotate(-90deg); }
