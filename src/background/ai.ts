@@ -6,29 +6,34 @@ import { generateId, isoNow } from '../shared/utils';
 const SYSTEM_PROMPT = `You are a deterministic personal planning assistant embedded in a browser extension.
 You manage tasks, memory, and calendar. Return ONLY valid JSON — no markdown, no prose wrappers.
 
-Output schema:
+EXACT output schema — follow this precisely:
 {
   "message": "1-2 line confirmation (terse)",
-  "actions": [ ...AIAction ],
+  "actions": [
+    { "type": "<action_type>", "payload": { ...fields } }
+  ],
   "requiresApproval": false
 }
 
-Action types and their payload shapes:
-  create_task        { title, status?, priority?, estimated_duration_minutes?, due_date?, project?, source?, notes? }
-  update_task        { id, ...fields }
-  delete_task        { id }
-  reorder_tasks      { orderedIds: string[] }
-  plan_day           { orderedTasks: Array<{ id, estimated_duration_minutes? }> }
-  update_memory      { path: "dot.separated.key", value: any }
-  create_calendar_event { title, start (ISO), end (ISO), description? }
+Each action MUST have a "type" field and a "payload" object. Example:
+  { "type": "create_task", "payload": { "title": "Buy groceries", "priority": "medium" } }
+
+Action types and payload fields:
+  create_task           payload: { title, status?, priority?, estimated_duration_minutes?, due_date?, project?, notes? }
+  update_task           payload: { id, ...fields to change }
+  delete_task           payload: { id }
+  reorder_tasks         payload: { orderedIds: ["id1","id2",...] }
+  plan_day              payload: { orderedTasks: [{ id, estimated_duration_minutes? }] }
+  update_memory         payload: { path: "dot.key", value: any }
+  create_calendar_event payload: { title, start (ISO datetime), end (ISO datetime), description? }
 
 Rules:
-- requiresApproval = true only for bulk deletes or explicit destructive rewrites
-- Tasks are flexible work. Calendar events are fixed-time appointments only.
-- Infer priority from urgency language: "urgent/asap/due today" → high, "sometime" → low
-- When asked to "plan my day", reorder todo tasks by priority+duration fit, fill in durations
+- requiresApproval = false always (except explicit bulk deletes — then set to true)
+- Tasks are flexible work items. Calendar events are fixed-time appointments only.
+- Infer priority from language: "urgent/asap/due today" → high, "sometime/eventually" → low
+- "plan my day" → reorder todo tasks by priority+duration, fill in durations
 - "mark X done" → update_task with status:"done"
-- Extract tasks from screenshot text literally — preserve exact wording`;
+- Extract tasks from screenshots literally — preserve exact wording`;
 
 // ── AI Client ─────────────────────────────────────────────────────────────────
 
@@ -149,7 +154,8 @@ export function applyActions(
     switch (action.type) {
 
       case 'create_task': {
-        const p = action.payload as Partial<Task>;
+        // Accept both { payload: {...} } and flat { type, title, ... } formats
+        const p = (action.payload ?? action) as Partial<Task>;
         newTasks.push({
           id:         generateId(),
           title:      p.title ?? 'Untitled',
@@ -167,7 +173,7 @@ export function applyActions(
       }
 
       case 'update_task': {
-        const p = action.payload as Partial<Task> & { id: string };
+        const p = (action.payload ?? action) as Partial<Task> & { id: string };
         newTasks = newTasks.map((t) =>
           t.id === p.id ? { ...t, ...p, updated_at: isoNow() } : t
         );
@@ -175,20 +181,20 @@ export function applyActions(
       }
 
       case 'delete_task': {
-        const { id } = action.payload as { id: string };
+        const { id } = (action.payload ?? action) as { id: string };
         newTasks = newTasks.filter((t) => t.id !== id);
         break;
       }
 
       case 'reorder_tasks': {
-        const { orderedIds } = action.payload as { orderedIds: string[] };
+        const { orderedIds } = (action.payload ?? action) as { orderedIds: string[] };
         const map = new Map(newTasks.map((t) => [t.id, t]));
         newTasks = orderedIds.map((id) => map.get(id)).filter(Boolean) as Task[];
         break;
       }
 
       case 'plan_day': {
-        const { orderedTasks } = action.payload as {
+        const { orderedTasks } = (action.payload ?? action) as {
           orderedTasks: Array<{ id: string; estimated_duration_minutes?: number }>;
         };
         const idxMap = new Map(orderedTasks.map((t, i) => [t.id, i]));
@@ -209,13 +215,13 @@ export function applyActions(
       }
 
       case 'update_memory': {
-        const { path, value } = action.payload as { path: string; value: unknown };
+        const { path, value } = (action.payload ?? action) as { path: string; value: unknown };
         setNested(newMem as unknown as Record<string, unknown>, path, value);
         break;
       }
 
       case 'create_calendar_event': {
-        calReqs.push(action.payload as ApplyResult['calendarRequests'][0]);
+        calReqs.push((action.payload ?? action) as ApplyResult['calendarRequests'][0]);
         break;
       }
     }

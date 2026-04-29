@@ -305,29 +305,34 @@
   var SYSTEM_PROMPT = `You are a deterministic personal planning assistant embedded in a browser extension.
 You manage tasks, memory, and calendar. Return ONLY valid JSON \u2014 no markdown, no prose wrappers.
 
-Output schema:
+EXACT output schema \u2014 follow this precisely:
 {
   "message": "1-2 line confirmation (terse)",
-  "actions": [ ...AIAction ],
+  "actions": [
+    { "type": "<action_type>", "payload": { ...fields } }
+  ],
   "requiresApproval": false
 }
 
-Action types and their payload shapes:
-  create_task        { title, status?, priority?, estimated_duration_minutes?, due_date?, project?, source?, notes? }
-  update_task        { id, ...fields }
-  delete_task        { id }
-  reorder_tasks      { orderedIds: string[] }
-  plan_day           { orderedTasks: Array<{ id, estimated_duration_minutes? }> }
-  update_memory      { path: "dot.separated.key", value: any }
-  create_calendar_event { title, start (ISO), end (ISO), description? }
+Each action MUST have a "type" field and a "payload" object. Example:
+  { "type": "create_task", "payload": { "title": "Buy groceries", "priority": "medium" } }
+
+Action types and payload fields:
+  create_task           payload: { title, status?, priority?, estimated_duration_minutes?, due_date?, project?, notes? }
+  update_task           payload: { id, ...fields to change }
+  delete_task           payload: { id }
+  reorder_tasks         payload: { orderedIds: ["id1","id2",...] }
+  plan_day              payload: { orderedTasks: [{ id, estimated_duration_minutes? }] }
+  update_memory         payload: { path: "dot.key", value: any }
+  create_calendar_event payload: { title, start (ISO datetime), end (ISO datetime), description? }
 
 Rules:
-- requiresApproval = true only for bulk deletes or explicit destructive rewrites
-- Tasks are flexible work. Calendar events are fixed-time appointments only.
-- Infer priority from urgency language: "urgent/asap/due today" \u2192 high, "sometime" \u2192 low
-- When asked to "plan my day", reorder todo tasks by priority+duration fit, fill in durations
+- requiresApproval = false always (except explicit bulk deletes \u2014 then set to true)
+- Tasks are flexible work items. Calendar events are fixed-time appointments only.
+- Infer priority from language: "urgent/asap/due today" \u2192 high, "sometime/eventually" \u2192 low
+- "plan my day" \u2192 reorder todo tasks by priority+duration, fill in durations
 - "mark X done" \u2192 update_task with status:"done"
-- Extract tasks from screenshot text literally \u2014 preserve exact wording`;
+- Extract tasks from screenshots literally \u2014 preserve exact wording`;
   var AIClient = class {
     constructor(cfg) {
       this.cfg = cfg;
@@ -409,7 +414,7 @@ User: ${prompt}` });
       };
       switch (action.type) {
         case "create_task": {
-          const p = action.payload;
+          const p = action.payload ?? action;
           newTasks.push({
             id: generateId(),
             title: p.title ?? "Untitled",
@@ -426,25 +431,25 @@ User: ${prompt}` });
           break;
         }
         case "update_task": {
-          const p = action.payload;
+          const p = action.payload ?? action;
           newTasks = newTasks.map(
             (t) => t.id === p.id ? { ...t, ...p, updated_at: isoNow() } : t
           );
           break;
         }
         case "delete_task": {
-          const { id } = action.payload;
+          const { id } = action.payload ?? action;
           newTasks = newTasks.filter((t) => t.id !== id);
           break;
         }
         case "reorder_tasks": {
-          const { orderedIds } = action.payload;
+          const { orderedIds } = action.payload ?? action;
           const map = new Map(newTasks.map((t) => [t.id, t]));
           newTasks = orderedIds.map((id) => map.get(id)).filter(Boolean);
           break;
         }
         case "plan_day": {
-          const { orderedTasks } = action.payload;
+          const { orderedTasks } = action.payload ?? action;
           const idxMap = new Map(orderedTasks.map((t, i) => [t.id, i]));
           const durMap = new Map(
             orderedTasks.filter((t) => t.estimated_duration_minutes != null).map((t) => [t.id, t.estimated_duration_minutes])
@@ -458,12 +463,12 @@ User: ${prompt}` });
           break;
         }
         case "update_memory": {
-          const { path, value } = action.payload;
+          const { path, value } = action.payload ?? action;
           setNested(newMem, path, value);
           break;
         }
         case "create_calendar_event": {
-          calReqs.push(action.payload);
+          calReqs.push(action.payload ?? action);
           break;
         }
       }
