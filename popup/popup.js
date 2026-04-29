@@ -117,6 +117,8 @@ function render() {
   document.getElementById('start-pause-btn').textContent =
     state.isRunning ? 'Pause' : 'Start';
 
+  document.getElementById('add-min-btn').classList.toggle('hidden', !state.isRunning);
+
   const dots = document.getElementById('sessions-dots');
   dots.innerHTML = '';
   const cyclePos = state.sessionsCompleted % 4;
