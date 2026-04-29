@@ -1,8 +1,7 @@
-// Styl — background timer engine
-// Manages all timer state and broadcasts updates to connected pages via ports.
+// Styl — background timer engine + site blocker
 
 const DEFAULTS = {
-  mode: 'focus',           // 'focus' | 'break' | 'longBreak'
+  mode: 'focus',
   timeRemaining: 25 * 60,
   isRunning: false,
   focusDuration: 25 * 60,
@@ -15,26 +14,28 @@ let state = { ...DEFAULTS };
 let timerInterval = null;
 const ports = new Set();
 
+// Block state — persisted separately so it survives timer resets
+let blockState = {
+  enabled: true,   // master toggle: block sites during focus
+  sites: [],       // list of blocked hostnames e.g. ["instagram.com"]
+};
+
 // ── Port management ──────────────────────────────────────────────────────────
 
 browser.runtime.onConnect.addListener((port) => {
   ports.add(port);
+  // Send both timer and block state immediately on connect
   port.postMessage({ type: 'stateUpdate', state: snapshot() });
+  port.postMessage({ type: 'blockStateUpdate', blockState: blockSnapshot() });
 
   port.onMessage.addListener((msg) => handleMessage(msg, port));
-
-  port.onDisconnect.addListener(() => {
-    ports.delete(port);
-  });
+  port.onDisconnect.addListener(() => ports.delete(port));
 });
 
 function broadcast(message) {
   ports.forEach((port) => {
-    try {
-      port.postMessage(message);
-    } catch (_) {
-      ports.delete(port);
-    }
+    try { port.postMessage(message); }
+    catch (_) { ports.delete(port); }
   });
 }
 
@@ -44,9 +45,21 @@ function broadcastState(event = null) {
   broadcast(msg);
 }
 
-function snapshot() {
-  return { ...state };
+function broadcastBlockState() {
+  broadcast({ type: 'blockStateUpdate', blockState: blockSnapshot() });
 }
+
+function snapshot()      { return { ...state }; }
+function blockSnapshot() { return { enabled: blockState.enabled, sites: [...blockState.sites] }; }
+
+// ── One-shot messages (used by the blocked.html page) ────────────────────────
+
+browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'getTimerState') {
+    sendResponse({ timeRemaining: state.timeRemaining, mode: state.mode });
+    return false;
+  }
+});
 
 // ── Timer logic ───────────────────────────────────────────────────────────────
 
@@ -76,19 +89,15 @@ function onTimerComplete() {
   }
 
   saveSettings();
-
-  const message = prevMode === 'focus'
-    ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
-    : 'Break over — time to focus.';
-
-  // Play from the persistent background page — always running, no autoplay block
   playChime();
 
   browser.notifications.create('styl-timer', {
     type: 'basic',
     iconUrl: browser.runtime.getURL('icons/icon.svg'),
     title: 'Styl',
-    message,
+    message: prevMode === 'focus'
+      ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
+      : 'Break over — time to focus.',
   });
 
   broadcastState('timerComplete');
@@ -107,6 +116,7 @@ function durationFor(mode) {
 
 function handleMessage(msg, port) {
   switch (msg.type) {
+
     case 'start':
       if (!state.isRunning && state.timeRemaining > 0) {
         state.isRunning = true;
@@ -157,12 +167,10 @@ function handleMessage(msg, port) {
 
     case 'updateSettings': {
       const { focusDuration, breakDuration, longBreakDuration } = msg;
-      if (focusDuration > 0)     state.focusDuration = focusDuration;
-      if (breakDuration > 0)     state.breakDuration = breakDuration;
+      if (focusDuration > 0)     state.focusDuration     = focusDuration;
+      if (breakDuration > 0)     state.breakDuration     = breakDuration;
       if (longBreakDuration > 0) state.longBreakDuration = longBreakDuration;
-      if (!state.isRunning) {
-        state.timeRemaining = durationFor(state.mode);
-      }
+      if (!state.isRunning) state.timeRemaining = durationFor(state.mode);
       saveSettings();
       broadcastState();
       break;
@@ -171,23 +179,77 @@ function handleMessage(msg, port) {
     case 'getState':
       port.postMessage({ type: 'stateUpdate', state: snapshot() });
       break;
+
+    // ── Block state ──────────────────────────────────────────────────────────
+
+    case 'setBlockEnabled':
+      blockState.enabled = !!msg.enabled;
+      saveBlockState();
+      broadcastBlockState();
+      break;
+
+    case 'setBlockedSites':
+      blockState.sites = Array.isArray(msg.sites) ? msg.sites : [];
+      saveBlockState();
+      broadcastBlockState();
+      break;
+
+    case 'getBlockState':
+      port.postMessage({ type: 'blockStateUpdate', blockState: blockSnapshot() });
+      break;
   }
 }
 
-// ── Settings persistence ──────────────────────────────────────────────────────
+// ── Site blocking ─────────────────────────────────────────────────────────────
+
+browser.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    // Only block during an active focus session
+    if (!state.isRunning || state.mode !== 'focus') return {};
+    if (!blockState.enabled || blockState.sites.length === 0) return {};
+
+    let host;
+    try {
+      host = new URL(details.url).hostname.replace(/^www\./, '');
+    } catch (_) {
+      return {};
+    }
+
+    const blocked = blockState.sites.some(
+      (site) => host === site || host.endsWith('.' + site)
+    );
+
+    if (blocked) {
+      return {
+        redirectUrl:
+          browser.runtime.getURL('blocked/blocked.html') +
+          '?site=' + encodeURIComponent(host),
+      };
+    }
+    return {};
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] },
+  ['blocking']
+);
+
+// ── Persistence ───────────────────────────────────────────────────────────────
 
 function saveSettings() {
   browser.storage.local.set({
     settings: {
-      focusDuration:    state.focusDuration,
-      breakDuration:    state.breakDuration,
+      focusDuration:     state.focusDuration,
+      breakDuration:     state.breakDuration,
       longBreakDuration: state.longBreakDuration,
       sessionsCompleted: state.sessionsCompleted,
     },
   });
 }
 
-browser.storage.local.get('settings').then((result) => {
+function saveBlockState() {
+  browser.storage.local.set({ blockState: blockSnapshot() });
+}
+
+browser.storage.local.get(['settings', 'blockState']).then((result) => {
   if (result.settings) {
     const s = result.settings;
     if (s.focusDuration)     state.focusDuration     = s.focusDuration;
@@ -195,5 +257,13 @@ browser.storage.local.get('settings').then((result) => {
     if (s.longBreakDuration) state.longBreakDuration = s.longBreakDuration;
     if (s.sessionsCompleted) state.sessionsCompleted = s.sessionsCompleted;
     state.timeRemaining = durationFor(state.mode);
+  }
+  if (result.blockState) {
+    if (typeof result.blockState.enabled === 'boolean') {
+      blockState.enabled = result.blockState.enabled;
+    }
+    if (Array.isArray(result.blockState.sites)) {
+      blockState.sites = result.blockState.sites;
+    }
   }
 });

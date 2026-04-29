@@ -2,30 +2,82 @@
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r=52 ≈ 326.73
 
-const PRESETS = {
+// Duration presets per timer mode
+const DURATION_PRESETS = {
   focus:     [15, 20, 25, 30, 45, 60, 90],
   break:     [5, 10, 15],
   longBreak: [10, 15, 20, 25, 30],
 };
 
-let port      = null;
-let state     = null;
-let isEditing = false;
+// Site-block presets — toggled as a group
+const BLOCK_PRESETS = {
+  social: {
+    label: 'Social',
+    sites: [
+      'instagram.com', 'facebook.com', 'twitter.com', 'x.com',
+      'tiktok.com', 'reddit.com', 'snapchat.com', 'pinterest.com',
+      'threads.net', 'linkedin.com', 'tumblr.com',
+    ],
+  },
+  video: {
+    label: 'Video',
+    sites: [
+      'youtube.com', 'netflix.com', 'twitch.tv',
+      'hulu.com', 'disneyplus.com', 'primevideo.com', 'vimeo.com',
+    ],
+  },
+  news: {
+    label: 'News',
+    sites: [
+      'cnn.com', 'bbc.com', 'nytimes.com', 'buzzfeed.com',
+      'theguardian.com', 'huffpost.com', 'dailymail.co.uk',
+    ],
+  },
+};
+
+let port       = null;
+let state      = null;
+let blockState = null;
+let isEditing  = false;
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
 function connect() {
   port = browser.runtime.connect({ name: 'popup' });
   port.onMessage.addListener((msg) => {
-    if (msg.type !== 'stateUpdate') return;
-    state = msg.state;
-    render();
-    if (msg.event === 'timerComplete') playChime();
+    if (msg.type === 'stateUpdate') {
+      state = msg.state;
+      render();
+      if (msg.event === 'timerComplete') playChime();
+    } else if (msg.type === 'blockStateUpdate') {
+      blockState = msg.blockState;
+      renderBlockPanel();
+      updateShieldIndicator();
+    }
   });
   port.onDisconnect.addListener(() => setTimeout(connect, 300));
 }
 
-// ── Rendering ─────────────────────────────────────────────────────────────────
+// ── Shield indicator ──────────────────────────────────────────────────────────
+
+function updateShieldIndicator() {
+  const active = blockState?.enabled && blockState?.sites?.length > 0;
+  document.getElementById('shield-btn').classList.toggle('active', active);
+}
+
+// ── Panel switching ───────────────────────────────────────────────────────────
+
+document.getElementById('shield-btn').addEventListener('click', () => {
+  document.getElementById('timer-view').classList.add('hidden');
+  document.getElementById('block-panel').classList.remove('hidden');
+});
+
+document.getElementById('block-back-btn').addEventListener('click', () => {
+  document.getElementById('block-panel').classList.add('hidden');
+  document.getElementById('timer-view').classList.remove('hidden');
+});
+
+// ── Timer rendering ───────────────────────────────────────────────────────────
 
 function fmt(seconds) {
   const m = Math.floor(seconds / 60);
@@ -46,16 +98,13 @@ function totalFor(mode) {
 function render() {
   if (!state) return;
 
-  // Mode tabs
   document.querySelectorAll('.mode-tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.mode === state.mode));
 
-  // Timer text — freeze during edit so typing isn't overwritten
   if (!isEditing) {
     document.getElementById('time-text').textContent = fmt(state.timeRemaining);
   }
 
-  // Progress ring
   const total    = totalFor(state.mode);
   const progress = state.timeRemaining / total;
   const offset   = (1 - progress) * RING_CIRCUMFERENCE;
@@ -65,11 +114,9 @@ function render() {
     (state.mode === 'break'     ? ' break-mode' :
      state.mode === 'longBreak' ? ' long-mode'  : '');
 
-  // Start/Pause label
   document.getElementById('start-pause-btn').textContent =
     state.isRunning ? 'Pause' : 'Start';
 
-  // Session dots
   const dots = document.getElementById('sessions-dots');
   dots.innerHTML = '';
   const cyclePos = state.sessionsCompleted % 4;
@@ -82,19 +129,16 @@ function render() {
     `${state.sessionsCompleted} session${state.sessionsCompleted !== 1 ? 's' : ''} completed`;
 }
 
-// ── Edit mode ─────────────────────────────────────────────────────────────────
+// ── Edit mode (click timer to change duration) ────────────────────────────────
 
 function enterEditMode() {
   if (isEditing) return;
   isEditing = true;
-
-  // Pause if running so the timer doesn't race against editing
   if (state?.isRunning) port.postMessage({ type: 'pause' });
 
   const mode    = state?.mode || 'focus';
   const minutes = Math.round(totalFor(mode) / 60);
 
-  // Swap display → input
   document.getElementById('time-text').classList.add('hidden');
   document.getElementById('time-editor').classList.remove('hidden');
   const input = document.getElementById('time-edit');
@@ -102,21 +146,18 @@ function enterEditMode() {
   input.focus();
   input.select();
 
-  // Show mode-appropriate presets, highlight the current value
-  buildPresets(mode, minutes);
+  buildDurationPresets(mode, minutes);
   document.getElementById('preset-bar').classList.remove('hidden');
 }
 
 function exitEditMode(save = true) {
   if (!isEditing) return;
   isEditing = false;
-
   if (save) {
     const raw     = parseInt(document.getElementById('time-edit').value, 10);
     const minutes = isNaN(raw) ? null : Math.min(Math.max(raw, 1), 180);
     if (minutes) saveMinutes(minutes);
   }
-
   document.getElementById('time-text').classList.remove('hidden');
   document.getElementById('time-editor').classList.add('hidden');
   document.getElementById('preset-bar').classList.add('hidden');
@@ -133,36 +174,145 @@ function saveMinutes(minutes) {
   });
 }
 
-function buildPresets(mode, currentMinutes) {
+function buildDurationPresets(mode, currentMinutes) {
   const bar = document.getElementById('preset-bar');
   bar.innerHTML = '';
-  (PRESETS[mode] || PRESETS.focus).forEach((val) => {
+  (DURATION_PRESETS[mode] || DURATION_PRESETS.focus).forEach((val) => {
     const chip = document.createElement('button');
     chip.className = 'preset-chip' + (val === currentMinutes ? ' active' : '');
     chip.textContent = `${val}m`;
-    // mousedown fires before blur, so preventDefault keeps focus on the input
-    // long enough for the click handler to read the value
     chip.addEventListener('mousedown', (e) => e.preventDefault());
-    chip.addEventListener('click', () => applyPreset(val));
+    chip.addEventListener('click', () => applyDurationPreset(val));
     bar.appendChild(chip);
   });
 }
 
-function applyPreset(val) {
+function applyDurationPreset(val) {
   document.getElementById('time-edit').value = val;
   exitEditMode(true);
 }
 
-// ── Event wiring ──────────────────────────────────────────────────────────────
+// ── Block panel rendering ─────────────────────────────────────────────────────
+
+function renderBlockPanel() {
+  if (!blockState) return;
+
+  // Master toggle
+  document.getElementById('block-enabled').checked = blockState.enabled;
+
+  // Preset chips — three states: all-on / some-on / off
+  document.querySelectorAll('.bp-preset').forEach((chip) => {
+    const preset = BLOCK_PRESETS[chip.dataset.preset];
+    if (!preset) return;
+    const count = preset.sites.filter((s) => blockState.sites.includes(s)).length;
+    chip.classList.toggle('all-on',  count === preset.sites.length);
+    chip.classList.toggle('some-on', count > 0 && count < preset.sites.length);
+  });
+
+  // Site list
+  const list = document.getElementById('bp-site-list');
+  list.innerHTML = '';
+
+  if (blockState.sites.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'bp-empty';
+    empty.textContent = 'No sites blocked yet.';
+    list.appendChild(empty);
+    return;
+  }
+
+  // Sort alphabetically for readability
+  [...blockState.sites].sort().forEach((site) => {
+    const row = document.createElement('div');
+    row.className = 'bp-site-row';
+
+    const domain = document.createElement('span');
+    domain.className = 'bp-site-domain';
+    domain.textContent = site;
+
+    const rm = document.createElement('button');
+    rm.className = 'bp-site-remove';
+    rm.textContent = '×';
+    rm.title = `Remove ${site}`;
+    rm.addEventListener('click', () => removeSite(site));
+
+    row.appendChild(domain);
+    row.appendChild(rm);
+    list.appendChild(row);
+  });
+}
+
+// ── Block state helpers ───────────────────────────────────────────────────────
+
+function setSites(sites) {
+  port.postMessage({ type: 'setBlockedSites', sites });
+}
+
+function removeSite(site) {
+  setSites(blockState.sites.filter((s) => s !== site));
+}
+
+function togglePreset(presetKey) {
+  const preset = BLOCK_PRESETS[presetKey];
+  if (!preset) return;
+
+  const allOn = preset.sites.every((s) => blockState.sites.includes(s));
+  let next = [...blockState.sites];
+
+  if (allOn) {
+    // Remove every site in this category
+    next = next.filter((s) => !preset.sites.includes(s));
+  } else {
+    // Add any missing sites from this category
+    preset.sites.forEach((s) => { if (!next.includes(s)) next.push(s); });
+  }
+  setSites(next);
+}
+
+function addCustomSite(raw) {
+  // Strip protocol, www, and path — keep bare hostname
+  const domain = raw.trim().toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .split('?')[0];
+
+  if (!domain || blockState.sites.includes(domain)) return false;
+  setSites([...blockState.sites, domain]);
+  return true;
+}
+
+// ── Block panel event wiring ──────────────────────────────────────────────────
+
+document.getElementById('block-enabled').addEventListener('change', (e) => {
+  port.postMessage({ type: 'setBlockEnabled', enabled: e.target.checked });
+});
+
+document.querySelectorAll('.bp-preset').forEach((chip) => {
+  chip.addEventListener('click', () => togglePreset(chip.dataset.preset));
+});
+
+document.getElementById('bp-add-btn').addEventListener('click', () => {
+  const input = document.getElementById('bp-add-input');
+  if (addCustomSite(input.value)) input.value = '';
+});
+
+document.getElementById('bp-add-input').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const input = e.target;
+  if (addCustomSite(input.value)) input.value = '';
+});
+
+// ── Timer event wiring ────────────────────────────────────────────────────────
 
 document.getElementById('time-text').addEventListener('click', enterEditMode);
 
 document.getElementById('time-edit').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); exitEditMode(true); }
+  if (e.key === 'Enter')  { e.preventDefault(); exitEditMode(true); }
   if (e.key === 'Escape') exitEditMode(false);
 });
 
-// Save on click-away; delay so preset chip's click fires first
 document.getElementById('time-edit').addEventListener('blur', () => {
   setTimeout(() => { if (isEditing) exitEditMode(true); }, 150);
 });

@@ -5,7 +5,10 @@
   "description": "A beautiful new tab with Pomodoro focus timer — by xerneas",
   "permissions": [
     "storage",
-    "notifications"
+    "notifications",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
   ],
   "background": {
     "scripts": ["shared/sound.js", "background.js"],

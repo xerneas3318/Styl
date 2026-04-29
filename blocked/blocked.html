@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blocked — Styl</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+  <div class="page">
+    <div class="shield-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    </div>
+
+    <div class="site-name" id="site-name">This site</div>
+    <div class="headline">is blocked during focus.</div>
+
+    <div class="sub">Stay on track — you're doing great.</div>
+
+    <div class="timer-row" id="timer-row" style="display:none">
+      <span class="timer-val" id="timer-val"></span>
+      <span class="timer-label">left in your session</span>
+    </div>
+
+    <button class="back-btn" id="back-btn">← Go back</button>
+  </div>
+
+  <script src="blocked.js"></script>
+</body>
+</html>
