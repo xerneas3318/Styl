@@ -209,6 +209,16 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
       }
       port.postMessage({ type: 'aiThinking' });
       try {
+        // Refresh calendar cache so the AI has up-to-date events
+        const calToken = await ensureGoogleToken();
+        if (calToken) {
+          try {
+            appState.calendarCache = await new CalendarClient(calToken).getTodayEvents();
+          } catch (e) {
+            console.warn('[styl] calendar refresh:', e);
+          }
+        }
+
         const ai  = new AIClient(settings.ai);
         const res = await ai.sendCommand(
           msg.prompt, appState.tasks, appState.memory, appState.calendarCache, msg.imageData

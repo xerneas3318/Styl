@@ -801,6 +801,14 @@ ${JSON.stringify(calendar, null, 2)}`
         }
         port.postMessage({ type: "aiThinking" });
         try {
+          const calToken = await ensureGoogleToken();
+          if (calToken) {
+            try {
+              appState.calendarCache = await new CalendarClient(calToken).getTodayEvents();
+            } catch (e) {
+              console.warn("[styl] calendar refresh:", e);
+            }
+          }
           const ai = new AIClient(settings.ai);
           const res = await ai.sendCommand(
             msg.prompt,
