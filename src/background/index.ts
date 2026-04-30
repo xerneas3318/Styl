@@ -132,12 +132,9 @@ function broadcastState(): void {
   broadcast({ type: 'stateUpdate', state: liveState() });
 }
 
-/** State snapshot with live timer value injected. */
+/** Raw state — frontend computes live remaining from startTime itself. */
 function liveState(): AppState {
-  return {
-    ...appState,
-    timer: { ...appState.timer, pausedTimeRemaining: getTimeRemaining(appState.timer) },
-  };
+  return appState;
 }
 
 // ── One-shot messages (for blocked page) ──────────────────────────────────────
@@ -160,7 +157,9 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
 
     case 'timerStart':
       appState.timer = startTimer(appState.timer);
-      await persistState(); broadcastState(); break;
+      await persistState(); broadcastState();
+      redirectBlockedTabs();
+      break;
 
     case 'timerPause':
       appState.timer = pauseTimer(appState.timer);
@@ -528,6 +527,33 @@ browser.webRequest.onBeforeRequest.addListener(
   ['blocking']
 );
 
+// ── Tab redirect on focus start ───────────────────────────────────────────────
+
+/** Redirect any already-open tabs that match blocked sites when focus begins. */
+async function redirectBlockedTabs(): Promise<void> {
+  const { enabled, sites } = appState.blockState;
+  if (!enabled || !sites.length) return;
+  if (!appState.timer.isRunning || appState.timer.mode !== 'focus') return;
+
+  const tabs = await browser.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.url || !tab.id) continue;
+    // Skip extension pages so we never redirect the newtab or blocked page itself
+    if (tab.url.startsWith('moz-extension://') || tab.url.startsWith('chrome-extension://')) continue;
+
+    let host: string;
+    try { host = new URL(tab.url).hostname.replace(/^www\./, ''); }
+    catch { continue; }
+
+    const isBlocked = sites.some((s) => host === s || host.endsWith('.' + s));
+    if (isBlocked) {
+      browser.tabs.update(tab.id, {
+        url: browser.runtime.getURL('blocked/blocked.html') + '?site=' + encodeURIComponent(host),
+      }).catch(() => {});
+    }
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function defaultMemory() {
@@ -537,5 +563,6 @@ function defaultMemory() {
     habits:           [] as string[],
     task_patterns:    {} as Record<string, unknown>,
     known_entities:   {} as Record<string, string>,
+    facts:            [] as string[],
   };
 }

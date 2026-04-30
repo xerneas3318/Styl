@@ -1,30 +1,34 @@
 # Styl
 
-A Firefox extension that turns your new tab into a Pomodoro timer with actual focus features.
+A Firefox extension that turns your new tab into a personal planning and focus workspace.
 
-I built this because every Pomodoro tool I found either put the useful stuff behind a paywall or just didn't have it. Site blocking, custom durations, session tracking all either missing or locked. So I made my own.
+I built this because every Pomodoro tool I found either put the useful stuff behind a paywall or just didn't have it. So I made my own, and then kept going.
 
-The plan is to grow this into a full focus and planning coach over time. Calendar integration, task planning, session insights. That's all hopefully coming (I think). For now it's a solid Pomodoro timer that completely free to use.
+It started as a timer. Now it has an AI assistant that actually understands your schedule, a full task manager with groups and drag and drop, live Google Calendar integration, and a site blocker that kicks in the moment you start a focus session. Everything lives on your new tab page so it's always one cmd+T away.
 
-I was also just playing around with Claude and this is mostly vibecoded. My org gave me tokens I didn't have to pay for and I figured I'd use them to solve some personal problems. This is one of them.
+I was also just playing around with Claude and this is mostly vibecoded. My org gave me tokens I didn't have to pay for so I figured I'd use them to solve some personal problems. This is one of them.
 
-## Features
+## What it does
 
-- New tab page with a live clock, daily focus intention, and timer
-- Focus, short break, and long break modes
-- Click the timer to set a custom duration or pick from presets
-- Site blocking during focus sessions with social, video, and news presets plus a custom list
-- Custom wallpaper support at full quality
-- Session tracking across the Pomodoro cycle
-- Chime when a session ends
-- Everything persists across restarts
+**Focus timer** — Pomodoro style with Focus, Short Break, and Long Break modes. Click the timer to set any duration or pick from presets. A progress ring counts down around the clock face and a chime plays when the session ends. A +1 min button appears while the timer is running for those moments when you just need a little more time.
 
-## Install
+**Site blocking** — When you start a focus session, any blocked sites redirect to a minimal blocked page that shows the remaining focus time counting down. Sites that are already open in other tabs get redirected too, not just new navigations. Comes with social, video, and news presets plus a fully custom list.
 
-1. Clone the repo
-2. Go to `about:debugging` in Firefox
-3. Click **This Firefox** then **Load Temporary Add-on**
-4. Select `manifest.json`
+**AI assistant** — A full chat panel powered by your choice of Claude or GPT. You can ask it to plan your day and it will build a time blocked schedule from your tasks and calendar, slotting meetings in as fixed blocks and filling the gaps with your to do items in priority order. It remembers things you tell it across sessions using a persistent fact memory, so the more you use it the better it understands how you work. Supports image paste, slash commands, and conversation history navigation.
+
+**Tasks** — Add tasks manually or let the AI create them. Group them by project with collapsible sections. Drag to reorder or drop one task onto another to merge them into a group. Click the priority dot to cycle between low, medium, and high. The AI can also read tasks from screenshots.
+
+**Google Calendar** — Connects via OAuth and shows your events in a Day or Week view panel. The AI can create and delete calendar events, and it refreshes the panel automatically after any change. It can also query events far into the future by calling the Calendar API as a tool mid conversation.
+
+**GitHub sync** — Optionally sync your task list and memory to a GitHub repo so nothing gets lost and you can access it across devices.
+
+**Wallpaper** — Upload any image as a full quality background. The time of day theme underneath shifts automatically between night, morning, afternoon, and evening.
+
+## Setup
+
+Clone the repo, then open `about:debugging` in Firefox. Click **This Firefox**, then **Load Temporary Add-on**, and select `manifest.json`.
+
+To use the AI features, open Settings from the task panel and paste in your Anthropic or OpenAI API key. Google Calendar and GitHub sync are optional and can also be configured there.
 
 ## License
 

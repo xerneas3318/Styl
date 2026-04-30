@@ -57,6 +57,35 @@
   var pendingImages = [];
   var slashActive = -1;
   var thinkingNode = null;
+  var timerTick = null;
+  function liveRemaining() {
+    const t = state?.timer;
+    if (!t) return 0;
+    if (!t.isRunning || t.startTime === null) return Math.max(0, t.pausedTimeRemaining);
+    const elapsed = Math.floor((Date.now() - t.startTime) / 1e3);
+    return Math.max(0, t.pausedTimeRemaining - elapsed);
+  }
+  function tickTimer() {
+    const remaining = liveRemaining();
+    if (!isEditing) {
+      const el = document.getElementById("time-text");
+      if (el) el.textContent = fmt(remaining);
+    }
+    const total = state?.timer.sessionTotal ?? 1;
+    const offset = (1 - Math.min(1, Math.max(0, total > 0 ? remaining / total : 1))) * RING_C;
+    const ring = document.getElementById("progress-ring");
+    if (ring) ring.style.strokeDashoffset = String(offset);
+  }
+  function syncTimerTick() {
+    if (state?.timer.isRunning) {
+      if (!timerTick) timerTick = setInterval(tickTimer, 1e3);
+    } else {
+      if (timerTick) {
+        clearInterval(timerTick);
+        timerTick = null;
+      }
+    }
+  }
   var draggedId = null;
   var SLASH_CMDS = [
     { cmd: "/plan", desc: "Reorder tasks by priority & duration", fill: "plan my day" },
@@ -78,6 +107,7 @@
           renderTasks();
           renderCalendar(state.calendarCache ?? []);
           renderAddMinBtn();
+          syncTimerTick();
           if (msg.event === "timerComplete") playChime();
           break;
         case "aiThinking":
@@ -163,9 +193,9 @@
       el.classList.toggle("active", el.dataset.mode === t.mode);
     });
     if (!isEditing) {
-      document.getElementById("time-text").textContent = fmt(t.pausedTimeRemaining);
+      document.getElementById("time-text").textContent = fmt(liveRemaining());
     }
-    const progress = t.sessionTotal > 0 ? t.pausedTimeRemaining / t.sessionTotal : 1;
+    const progress = t.sessionTotal > 0 ? liveRemaining() / t.sessionTotal : 1;
     const offset = (1 - Math.min(1, Math.max(0, progress))) * RING_C;
     const ring = document.getElementById("progress-ring");
     ring.style.strokeDashoffset = String(offset);

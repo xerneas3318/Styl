@@ -43,6 +43,37 @@ let pendingImages: Array<{ data: string; url: string }> = [];
 let slashActive               = -1;
 let thinkingNode: HTMLElement | null = null;
 
+// ── Timer tick ────────────────────────────────────────────────────────────────
+let timerTick: ReturnType<typeof setInterval> | null = null;
+
+function liveRemaining(): number {
+  const t = state?.timer;
+  if (!t) return 0;
+  if (!t.isRunning || t.startTime === null) return Math.max(0, t.pausedTimeRemaining);
+  const elapsed = Math.floor((Date.now() - t.startTime) / 1000);
+  return Math.max(0, t.pausedTimeRemaining - elapsed);
+}
+
+function tickTimer() {
+  const remaining = liveRemaining();
+  if (!isEditing) {
+    const el = document.getElementById('time-text');
+    if (el) el.textContent = fmt(remaining);
+  }
+  const total  = state?.timer.sessionTotal ?? 1;
+  const offset = (1 - Math.min(1, Math.max(0, total > 0 ? remaining / total : 1))) * RING_C;
+  const ring   = document.getElementById('progress-ring') as SVGCircleElement | null;
+  if (ring) ring.style.strokeDashoffset = String(offset);
+}
+
+function syncTimerTick() {
+  if (state?.timer.isRunning) {
+    if (!timerTick) timerTick = setInterval(tickTimer, 1000);
+  } else {
+    if (timerTick) { clearInterval(timerTick); timerTick = null; }
+  }
+}
+
 // ── Drag-and-drop state ───────────────────────────────────────────────────────
 let draggedId: string | null = null;
 
@@ -69,6 +100,7 @@ function connect() {
         renderTasks();
         renderCalendar(state.calendarCache ?? []);
         renderAddMinBtn();
+        syncTimerTick();
         if ((msg as { event?: string }).event === 'timerComplete') playChime();
         break;
       case 'aiThinking':
@@ -175,13 +207,13 @@ function renderTimer() {
     (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.mode === t.mode);
   });
 
-  // Time display
+  // Time display — use liveRemaining() so it's correct even on first render
   if (!isEditing) {
-    (document.getElementById('time-text') as HTMLElement).textContent = fmt(t.pausedTimeRemaining);
+    (document.getElementById('time-text') as HTMLElement).textContent = fmt(liveRemaining());
   }
 
   // Ring
-  const progress = t.sessionTotal > 0 ? t.pausedTimeRemaining / t.sessionTotal : 1;
+  const progress = t.sessionTotal > 0 ? liveRemaining() / t.sessionTotal : 1;
   const offset   = (1 - Math.min(1, Math.max(0, progress))) * RING_C;
   const ring = document.getElementById('progress-ring') as SVGCircleElement;
   ring.style.strokeDashoffset = String(offset);

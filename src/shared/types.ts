@@ -21,11 +21,18 @@ export interface Task {
 }
 
 export interface Memory {
+  // Structured fields
   preferences:      Record<string, unknown>;
   recurring_events: Array<{ name: string; pattern: string }>;
   habits:           string[];
   task_patterns:    Record<string, unknown>;
   known_entities:   Record<string, string>;
+  // Atomic facts extracted from conversations (e.g. "User prefers morning deep work")
+  facts:            string[];
+  // Biographical context written by user or AI
+  about_me?:        string;
+  // Work schedule
+  work_hours?:      { start: string; end: string; days?: string[] };
 }
 
 export interface CalendarEvent {
@@ -135,6 +142,7 @@ export type AIActionType =
   | 'delete_task'
   | 'reorder_tasks'
   | 'update_memory'
+  | 'add_fact'
   | 'plan_day'
   | 'create_calendar_event'
   | 'delete_calendar_event';

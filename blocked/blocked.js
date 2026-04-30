@@ -1,28 +1,28 @@
 // Styl — blocked page
-// Shows which site was intercepted and the remaining focus time.
 
 const params = new URLSearchParams(window.location.search);
 const site   = params.get('site') || 'This site';
 
 document.getElementById('site-name').textContent = site;
 
-// Ask the background for the current timer state (one-shot message)
-browser.runtime.sendMessage({ type: 'getTimerState' })
-  .then((resp) => {
-    if (!resp) return;
-    const secs = resp.timeRemaining;
-    if (typeof secs !== 'number' || secs <= 0) return;
+function fmt(secs) {
+  const s = Math.max(0, Math.floor(secs));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
 
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    document.getElementById('timer-val').textContent =
-      `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    document.getElementById('timer-row').style.display = 'flex';
-  })
-  .catch(() => {});
+function refresh() {
+  browser.runtime.sendMessage({ type: 'getTimerState' })
+    .then((resp) => {
+      if (!resp || typeof resp.timeRemaining !== 'number' || resp.timeRemaining <= 0) return;
+      document.getElementById('timer-val').textContent = fmt(resp.timeRemaining);
+      document.getElementById('timer-row').style.display = 'flex';
+    })
+    .catch(() => {});
+}
+
+refresh();
+setInterval(refresh, 1000);
 
 document.getElementById('back-btn').addEventListener('click', () => {
-  // history.back() returns to the page that triggered the redirect,
-  // which would re-block immediately. Navigate to a safe blank page instead.
   history.length > 1 ? history.go(-2) : window.close();
 });
