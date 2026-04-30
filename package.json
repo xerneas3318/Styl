@@ -1,0 +1,15 @@
+{
+  "name": "styl",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/firefox-webext-browser": "^120.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.4.0"
+  }
+}

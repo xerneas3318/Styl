@@ -1,0 +1,1288 @@
+"use strict";
+(() => {
+  // src/shared/storage.ts
+  var KEY_STATE = "styl_state";
+  var KEY_SETTINGS = "styl_settings";
+  var KEY_SNAPSHOTS = "styl_snapshots";
+  var MAX_SNAPSHOTS = 50;
+  async function get(key) {
+    const result = await browser.storage.local.get(key);
+    return result[key] ?? null;
+  }
+  function set(key, value) {
+    return browser.storage.local.set({ [key]: value });
+  }
+  var Storage = {
+    getState: () => get(KEY_STATE),
+    setState: (s) => set(KEY_STATE, s),
+    getSettings: () => get(KEY_SETTINGS),
+    setSettings: (s) => set(KEY_SETTINGS, s),
+    getSnapshots: () => get(KEY_SNAPSHOTS).then((s) => s ?? []),
+    setSnapshots: (s) => set(KEY_SNAPSHOTS, s),
+    async pushSnapshot(snap) {
+      const snaps = await Storage.getSnapshots();
+      snaps.unshift(snap);
+      if (snaps.length > MAX_SNAPSHOTS) snaps.length = MAX_SNAPSHOTS;
+      await Storage.setSnapshots(snaps);
+    }
+  };
+
+  // src/shared/utils.ts
+  function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+  function isoNow() {
+    return (/* @__PURE__ */ new Date()).toISOString();
+  }
+  function todayStr() {
+    return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  }
+  function clone(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+
+  // src/background/timer.ts
+  var ALARM_COMPLETE = "styl-timer-complete";
+  var ALARM_KEEPALIVE = "styl-keepalive";
+  function defaultTimerState() {
+    return {
+      mode: "focus",
+      isRunning: false,
+      startTime: null,
+      pausedTimeRemaining: 25 * 60,
+      sessionTotal: 25 * 60,
+      focusDuration: 25 * 60,
+      breakDuration: 5 * 60,
+      longBreakDuration: 15 * 60,
+      sessionsCompleted: 0
+    };
+  }
+  function getTimeRemaining(t) {
+    if (!t.isRunning || t.startTime === null) {
+      return Math.max(0, t.pausedTimeRemaining);
+    }
+    const elapsed = Math.floor((Date.now() - t.startTime) / 1e3);
+    return Math.max(0, t.pausedTimeRemaining - elapsed);
+  }
+  function durationFor(t, mode) {
+    switch (mode) {
+      case "focus":
+        return t.focusDuration;
+      case "break":
+        return t.breakDuration;
+      case "longBreak":
+        return t.longBreakDuration;
+    }
+  }
+  function startTimer(t) {
+    if (t.isRunning || t.pausedTimeRemaining <= 0) return t;
+    browser.alarms.create(ALARM_COMPLETE, {
+      delayInMinutes: t.pausedTimeRemaining / 60
+    });
+    return { ...t, isRunning: true, startTime: Date.now() };
+  }
+  function pauseTimer(t) {
+    if (!t.isRunning) return t;
+    browser.alarms.clear(ALARM_COMPLETE);
+    return {
+      ...t,
+      isRunning: false,
+      startTime: null,
+      pausedTimeRemaining: getTimeRemaining(t)
+    };
+  }
+  function resetTimer(t) {
+    browser.alarms.clear(ALARM_COMPLETE);
+    const duration = durationFor(t, t.mode);
+    return {
+      ...t,
+      isRunning: false,
+      startTime: null,
+      pausedTimeRemaining: duration,
+      sessionTotal: duration
+    };
+  }
+  function skipTimer(t) {
+    browser.alarms.clear(ALARM_COMPLETE);
+    let { mode, sessionsCompleted } = t;
+    if (mode === "focus") {
+      sessionsCompleted++;
+      mode = sessionsCompleted % 4 === 0 ? "longBreak" : "break";
+    } else {
+      mode = "focus";
+    }
+    const duration = durationFor({ ...t, mode }, mode);
+    return {
+      ...t,
+      mode,
+      sessionsCompleted,
+      isRunning: false,
+      startTime: null,
+      pausedTimeRemaining: duration,
+      sessionTotal: duration
+    };
+  }
+  function setTimerMode(t, mode) {
+    browser.alarms.clear(ALARM_COMPLETE);
+    const duration = durationFor({ ...t, mode }, mode);
+    return {
+      ...t,
+      mode,
+      isRunning: false,
+      startTime: null,
+      pausedTimeRemaining: duration,
+      sessionTotal: duration
+    };
+  }
+  function addMinute(t) {
+    const newRemaining = getTimeRemaining(t) + 60;
+    if (t.isRunning) {
+      browser.alarms.clear(ALARM_COMPLETE);
+      browser.alarms.create(ALARM_COMPLETE, { delayInMinutes: newRemaining / 60 });
+    }
+    return {
+      ...t,
+      pausedTimeRemaining: t.isRunning ? t.pausedTimeRemaining + 60 : newRemaining,
+      sessionTotal: t.sessionTotal + 60,
+      startTime: t.isRunning ? t.startTime : null
+    };
+  }
+  function onTimerComplete(t) {
+    const prevMode = t.mode;
+    let { mode, sessionsCompleted } = t;
+    if (mode === "focus") {
+      sessionsCompleted++;
+      mode = sessionsCompleted % 4 === 0 ? "longBreak" : "break";
+    } else {
+      mode = "focus";
+    }
+    const duration = durationFor({ ...t, mode }, mode);
+    return {
+      prevMode,
+      state: {
+        ...t,
+        mode,
+        sessionsCompleted,
+        isRunning: false,
+        startTime: null,
+        pausedTimeRemaining: duration,
+        sessionTotal: duration
+      }
+    };
+  }
+
+  // src/background/github.ts
+  var GITHUB_API = "https://api.github.com";
+  function defaultMemory() {
+    return {
+      preferences: {},
+      recurring_events: [],
+      habits: [],
+      task_patterns: {},
+      known_entities: {}
+    };
+  }
+  var GitHubClient = class {
+    constructor(cfg) {
+      this.cfg = cfg;
+      // ── Domain helpers ─────────────────────────────────────────────────────────
+      this.readTasks = () => this.readJSON("tasks.json", []);
+      this.readMemory = () => this.readJSON("memory.json", defaultMemory());
+      this.writeTasks = (tasks, msg) => this.writeJSON("tasks.json", tasks, msg);
+      this.writeMemory = (memory, msg) => this.writeJSON("memory.json", memory, msg);
+      this.saveSnapshot = (snap) => this.writeJSON(`snapshots/snapshot-${snap.id}.json`, snap, `snapshot: ${snap.id}`);
+      this.saveDiff = (id, d) => this.writeJSON(`diffs/diff-${id}.json`, d, `diff: ${id}`);
+    }
+    get headers() {
+      return {
+        Authorization: `Bearer ${this.cfg.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      };
+    }
+    url(path) {
+      return `${GITHUB_API}/repos/${this.cfg.owner}/${this.cfg.repo}${path}`;
+    }
+    async req(method, path, body) {
+      const res = await fetch(this.url(path), {
+        method,
+        headers: this.headers,
+        body: body ? JSON.stringify(body) : void 0
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`GitHub ${method} ${path} \u2192 ${res.status}: ${text}`);
+      }
+      return res.json();
+    }
+    async getFile(path) {
+      try {
+        const data = await this.req(
+          "GET",
+          `/contents/${path}?ref=${this.cfg.branch}`
+        );
+        return {
+          content: decodeURIComponent(escape(atob(data.content.replace(/\n/g, "")))),
+          sha: data.sha
+        };
+      } catch {
+        return null;
+      }
+    }
+    async putFile(path, content, message, sha) {
+      await this.req("PUT", `/contents/${path}`, {
+        message,
+        content: btoa(unescape(encodeURIComponent(content))),
+        branch: this.cfg.branch,
+        ...sha ? { sha } : {}
+      });
+    }
+    async readJSON(path, fallback) {
+      const file = await this.getFile(path);
+      if (!file) return fallback;
+      try {
+        return JSON.parse(file.content);
+      } catch {
+        return fallback;
+      }
+    }
+    async writeJSON(path, data, message) {
+      const file = await this.getFile(path);
+      await this.putFile(path, JSON.stringify(data, null, 2), message, file?.sha);
+    }
+    async appendLog(entry) {
+      const path = `logs/${todayStr()}.json`;
+      const file = await this.getFile(path);
+      const prev = file ? JSON.parse(file.content) : [];
+      prev.push(entry);
+      await this.putFile(path, JSON.stringify(prev, null, 2), `log: ${entry.timestamp}`, file?.sha);
+    }
+    /** Creates the repo if it doesn't already exist (422 = already exists → fine). */
+    async createRepo(name) {
+      const res = await fetch(`${GITHUB_API}/user/repos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.cfg.token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        body: JSON.stringify({
+          name,
+          private: true,
+          description: "Styl browser extension data",
+          auto_init: true
+          // creates an initial commit so the branch exists
+        })
+      });
+      if (!res.ok && res.status !== 422) {
+        const data = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(data.message ?? "Could not create repo");
+      }
+    }
+    async testConnection() {
+      try {
+        await this.req("GET", "");
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    }
+    async bootstrap() {
+      const [tasks, memory] = await Promise.all([
+        this.getFile("tasks.json"),
+        this.getFile("memory.json")
+      ]);
+      const writes = [];
+      if (!tasks) writes.push(this.putFile("tasks.json", "[]", "init: tasks"));
+      if (!memory) writes.push(this.putFile("memory.json", JSON.stringify(defaultMemory(), null, 2), "init: memory"));
+      await Promise.all(writes);
+    }
+  };
+
+  // src/background/ai.ts
+  var ANTHROPIC_CAL_TOOL = {
+    name: "get_calendar_events",
+    description: "Fetch the user's Google Calendar events for a date range. Use this for any date more than 14 days from today, or when the pre-fetched context does not contain the requested date.",
+    input_schema: {
+      type: "object",
+      properties: {
+        start_date: { type: "string", description: "Start date YYYY-MM-DD (inclusive)" },
+        end_date: { type: "string", description: "End date YYYY-MM-DD (inclusive)" }
+      },
+      required: ["start_date", "end_date"]
+    }
+  };
+  var OPENAI_CAL_TOOL = {
+    type: "function",
+    function: {
+      name: "get_calendar_events",
+      description: "Fetch the user's Google Calendar events for a date range. Use this for any date more than 14 days from today, or when the pre-fetched context does not contain the requested date.",
+      parameters: {
+        type: "object",
+        properties: {
+          start_date: { type: "string", description: "Start date YYYY-MM-DD (inclusive)" },
+          end_date: { type: "string", description: "End date YYYY-MM-DD (inclusive)" }
+        },
+        required: ["start_date", "end_date"]
+      }
+    }
+  };
+  function buildSystemPrompt() {
+    const now = /* @__PURE__ */ new Date();
+    const dateStr = now.toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
+    const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    return `You are a personal planning assistant embedded in a browser extension.
+Today is ${dateStr}, ${timeStr}.
+You manage tasks, memory, and calendar events. Return ONLY valid JSON \u2014 no markdown, no prose wrappers.
+
+EXACT output schema \u2014 follow this precisely:
+{
+  "message": "Your reply to the user. For action confirmations be brief. For information queries (listing events, listing tasks, answering questions) write the FULL answer \u2014 include all event titles, times, and dates. Do NOT truncate or summarise.",
+  "actions": [
+    { "type": "<action_type>", "payload": { ...fields } }
+  ],
+  "requiresApproval": false
+}
+
+Each action MUST have a "type" field and a "payload" object. Example:
+  { "type": "create_task", "payload": { "title": "Buy groceries", "priority": "medium" } }
+
+Action types and payload fields:
+  create_task           payload: { title, status?, priority?, estimated_duration_minutes?, due_date?, project?, notes? }
+  update_task           payload: { id, ...fields to change }
+  delete_task           payload: { id }
+  reorder_tasks         payload: { orderedIds: ["id1","id2",...] }
+  plan_day              payload: { orderedTasks: [{ id, estimated_duration_minutes? }] }
+  update_memory         payload: { path: "dot.key", value: any }
+  create_calendar_event payload: { title, start (ISO datetime), end (ISO datetime), description? }
+  delete_calendar_event payload: { id } \u2014 use the event id from the calendar list
+
+Rules:
+- requiresApproval = false always (except explicit bulk deletes \u2014 then set to true)
+- Tasks are flexible work items. Calendar events are fixed-time appointments only.
+- Infer priority from language: "urgent/asap/due today" \u2192 high, "sometime/eventually" \u2192 low
+- "plan my day" \u2192 reorder todo tasks by priority+duration, fill in durations
+- "mark X done" \u2192 update_task with status:"done"
+- Extract tasks from screenshots literally \u2014 preserve exact wording
+
+Calendar rules:
+- The context has pre-fetched events for today + next 14 days only.
+- For ANY date beyond that 14-day window, you MUST call get_calendar_events before answering. Do NOT say "no events" or "not in my data" for future dates \u2014 always fetch first.
+- Pass YYYY-MM-DD start_date/end_date. Widen to cover the full requested period (e.g. full week or month) with one call rather than multiple narrow calls.
+- After receiving tool results, answer from those results literally. Never invent events.
+- For dates within the 14-day window, read from the pre-fetched list. Quote every matching event title and time.
+- When asked about a specific day, calculate the date using "Today is ${dateStr}", then look it up.
+- If the pre-fetched list has zero events for an in-window day, say: "I don't see any events on [date]." \u2014 do NOT just say "No events."`;
+  }
+  var AIClient = class {
+    constructor(cfg) {
+      this.cfg = cfg;
+    }
+    async sendCommand(prompt, tasks, memory, calendar, imageData, fetchCalendar) {
+      const context = buildContext(tasks, memory, calendar);
+      return this.cfg.provider === "anthropic" ? this.callAnthropic(prompt, context, imageData, fetchCalendar) : this.callOpenAI(prompt, context, imageData, fetchCalendar);
+    }
+    async callAnthropic(prompt, context, imageData, fetchCalendar) {
+      const initContent = [];
+      if (imageData) {
+        initContent.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: imageData }
+        });
+      }
+      initContent.push({ type: "text", text: `${context}
+
+User: ${prompt}` });
+      const messages = [{ role: "user", content: initContent }];
+      const tools = fetchCalendar ? [ANTHROPIC_CAL_TOOL] : [];
+      for (let turn = 0; turn < 5; turn++) {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": this.cfg.apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: this.cfg.model || "claude-haiku-4-5-20251001",
+            max_tokens: 2048,
+            system: buildSystemPrompt(),
+            messages,
+            ...tools.length ? { tools } : {}
+          })
+        });
+        if (!res.ok) throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        if (data.stop_reason !== "tool_use") {
+          const textBlock = data.content.find((b) => b["type"] === "text");
+          return parseAIResponse(textBlock?.["text"] ?? "");
+        }
+        messages.push({ role: "assistant", content: data.content });
+        const toolResults = [];
+        for (const block of data.content) {
+          if (block["type"] !== "tool_use") continue;
+          const input = block["input"];
+          const events = fetchCalendar ? await fetchCalendar(input.start_date, input.end_date) : [];
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block["id"],
+            content: formatEventsForTool(events, input.start_date, input.end_date)
+          });
+        }
+        messages.push({ role: "user", content: toolResults });
+      }
+      throw new Error("Calendar tool: too many turns without a final response.");
+    }
+    async callOpenAI(prompt, context, imageData, fetchCalendar) {
+      const userContent = [];
+      if (imageData) {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: `data:image/png;base64,${imageData}` }
+        });
+      }
+      userContent.push({ type: "text", text: `${context}
+
+User: ${prompt}` });
+      const messages = [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: userContent }
+      ];
+      const tools = fetchCalendar ? [OPENAI_CAL_TOOL] : [];
+      for (let turn = 0; turn < 5; turn++) {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.cfg.apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: this.cfg.model || "gpt-4o-mini",
+            messages,
+            max_tokens: 2048,
+            // response_format:json_object is incompatible with tool use; parseAIResponse handles either
+            ...tools.length ? { tools } : { response_format: { type: "json_object" } }
+          })
+        });
+        if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        const choice = data.choices[0];
+        if (choice.finish_reason !== "tool_calls") {
+          return parseAIResponse(choice.message.content ?? "");
+        }
+        messages.push(choice.message);
+        for (const tc of choice.message.tool_calls ?? []) {
+          const args = JSON.parse(tc.function.arguments);
+          const events = fetchCalendar ? await fetchCalendar(args.start_date, args.end_date) : [];
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: formatEventsForTool(events, args.start_date, args.end_date)
+          });
+        }
+      }
+      throw new Error("Calendar tool: too many turns without a final response.");
+    }
+  };
+  function applyActions(tasks, memory, actions) {
+    let newTasks = [...tasks];
+    const newMem = JSON.parse(JSON.stringify(memory));
+    const calReqs = [];
+    const calDels = [];
+    for (const rawAction of actions) {
+      if (!rawAction.type) continue;
+      const action = {
+        ...rawAction,
+        type: rawAction.type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().replace(/-/g, "_")
+      };
+      switch (action.type) {
+        case "create_task": {
+          const p = action.payload ?? action;
+          newTasks.push({
+            id: generateId(),
+            title: p.title ?? "Untitled",
+            status: p.status ?? "todo",
+            priority: p.priority ?? "medium",
+            source: p.source ?? "ai",
+            estimated_duration_minutes: p.estimated_duration_minutes,
+            due_date: p.due_date,
+            project: p.project,
+            notes: p.notes,
+            created_at: isoNow(),
+            updated_at: isoNow()
+          });
+          break;
+        }
+        case "update_task": {
+          const p = action.payload ?? action;
+          newTasks = newTasks.map(
+            (t) => t.id === p.id ? { ...t, ...p, updated_at: isoNow() } : t
+          );
+          break;
+        }
+        case "delete_task": {
+          const { id } = action.payload ?? action;
+          newTasks = newTasks.filter((t) => t.id !== id);
+          break;
+        }
+        case "reorder_tasks": {
+          const { orderedIds } = action.payload ?? action;
+          const map = new Map(newTasks.map((t) => [t.id, t]));
+          newTasks = orderedIds.map((id) => map.get(id)).filter(Boolean);
+          break;
+        }
+        case "plan_day": {
+          const { orderedTasks } = action.payload ?? action;
+          const idxMap = new Map(orderedTasks.map((t, i) => [t.id, i]));
+          const durMap = new Map(
+            orderedTasks.filter((t) => t.estimated_duration_minutes != null).map((t) => [t.id, t.estimated_duration_minutes])
+          );
+          newTasks = [...newTasks].sort(
+            (a, b) => (idxMap.get(a.id) ?? 999) - (idxMap.get(b.id) ?? 999)
+          );
+          newTasks = newTasks.map(
+            (t) => durMap.has(t.id) ? { ...t, estimated_duration_minutes: durMap.get(t.id), updated_at: isoNow() } : t
+          );
+          break;
+        }
+        case "update_memory": {
+          const { path, value } = action.payload ?? action;
+          setNested(newMem, path, value);
+          break;
+        }
+        case "create_calendar_event": {
+          calReqs.push(action.payload ?? action);
+          break;
+        }
+        case "delete_calendar_event": {
+          const { id } = action.payload ?? action;
+          if (id) calDels.push(id);
+          break;
+        }
+      }
+    }
+    return { tasks: newTasks, memory: newMem, calendarRequests: calReqs, calendarDeleteRequests: calDels };
+  }
+  function buildContext(tasks, memory, calendar) {
+    const now = /* @__PURE__ */ new Date();
+    const todayStr2 = dateKey(now);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const tomorrowStr = dateKey(tomorrow);
+    const calLines = calendar.length === 0 ? "(no events in the next 14 days)" : calendar.map((e) => {
+      const isAllDay = !e.start.includes("T");
+      const startDt = isAllDay ? localNoon(e.start) : new Date(e.start);
+      const endDt = isAllDay ? localNoon(e.end) : new Date(e.end);
+      const dayLabel = startDt.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+      const timeLabel = isAllDay ? "all day" : `${startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} \u2013 ${endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+      const desc = e.description ? ` | ${e.description.slice(0, 80)}` : "";
+      const key = dateKey(startDt);
+      const rel = key === todayStr2 ? " [TODAY]" : key === tomorrowStr ? " [TOMORROW]" : "";
+      return `\u2022 ${dayLabel}${rel} ${timeLabel}: ${e.title}${desc}`;
+    }).join("\n");
+    return [
+      `Tasks (${tasks.length}):
+${JSON.stringify(tasks, null, 2)}`,
+      `Memory:
+${JSON.stringify(memory, null, 2)}`,
+      `Upcoming calendar events (today + next 14 days only \u2014 use get_calendar_events tool for anything beyond, ${calendar.length} total):
+${calLines}`
+    ].join("\n\n");
+  }
+  function formatEventsForTool(events, startDate, endDate) {
+    if (!events.length) {
+      return `No events found between ${startDate} and ${endDate}.`;
+    }
+    return events.map((e) => {
+      const isAllDay = !e.start.includes("T");
+      const startDt = isAllDay ? localNoon(e.start) : new Date(e.start);
+      const endDt = isAllDay ? localNoon(e.end) : new Date(e.end);
+      const dayLabel = startDt.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      });
+      const timeLabel = isAllDay ? "all day" : `${startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} \u2013 ` + endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return `\u2022 ${dayLabel} ${timeLabel}: ${e.title}`;
+    }).join("\n");
+  }
+  function parseAIResponse(raw) {
+    const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+    try {
+      const parsed = JSON.parse(cleaned);
+      return {
+        message: String(parsed.message ?? ""),
+        actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+        requiresApproval: parsed.requiresApproval === true
+      };
+    } catch {
+      return { message: raw.slice(0, 200), actions: [], requiresApproval: false };
+    }
+  }
+  function dateKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function localNoon(dateStr) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0);
+  }
+  function setNested(obj, path, value) {
+    const parts = path.split(".");
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (cur[parts[i]] == null || typeof cur[parts[i]] !== "object") cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  // src/background/version-control.ts
+  function createSnapshot(tasks, memory) {
+    return {
+      id: generateId(),
+      timestamp: isoNow(),
+      tasks: JSON.parse(JSON.stringify(tasks)),
+      memory: JSON.parse(JSON.stringify(memory))
+    };
+  }
+  function computeDiff(before, after) {
+    const beforeMap = new Map(before.map((t) => [t.id, t]));
+    const afterMap = new Map(after.map((t) => [t.id, t]));
+    return {
+      added: after.filter((t) => !beforeMap.has(t.id)),
+      removed: before.filter((t) => !afterMap.has(t.id)),
+      modified: after.filter((t) => beforeMap.has(t.id) && JSON.stringify(beforeMap.get(t.id)) !== JSON.stringify(t)).map((t) => ({ before: beforeMap.get(t.id), after: t }))
+    };
+  }
+  function isDiffEmpty(diff) {
+    return diff.added.length === 0 && diff.removed.length === 0 && diff.modified.length === 0;
+  }
+  async function commitChange(gh, beforeTasks, afterTasks, memory, prompt, actionTypes) {
+    const snapshot = createSnapshot(afterTasks, memory);
+    const diff = computeDiff(beforeTasks, afterTasks);
+    await Storage.pushSnapshot(snapshot);
+    const commitMsg = `ai: ${prompt.slice(0, 72)}`;
+    const log = {
+      timestamp: isoNow(),
+      user_prompt: prompt,
+      ai_actions_taken: actionTypes,
+      files_changed: ["tasks.json", "memory.json"]
+    };
+    Promise.all([
+      gh.writeTasks(afterTasks, commitMsg),
+      gh.writeMemory(memory, commitMsg),
+      gh.saveSnapshot(snapshot),
+      !isDiffEmpty(diff) ? gh.saveDiff(snapshot.id, diff) : Promise.resolve(),
+      gh.appendLog(log)
+    ]).catch((e) => console.error("[styl] GitHub sync error:", e));
+  }
+
+  // src/background/gmail.ts
+  var GmailClient = class {
+    constructor(accessToken) {
+      this.accessToken = accessToken;
+    }
+    get auth() {
+      return { Authorization: `Bearer ${this.accessToken}` };
+    }
+    async getRecentUnread(max = 20) {
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=is:unread`,
+        { headers: this.auth }
+      );
+      if (!res.ok) throw new Error(`Gmail list error ${res.status}`);
+      const list = await res.json();
+      if (!list.messages?.length) return [];
+      const results = await Promise.allSettled(
+        list.messages.slice(0, max).map((m) => this.fetchMessage(m.id))
+      );
+      return results.filter((r) => r.status === "fulfilled").map((r) => r.value).filter((m) => m !== null);
+    }
+    async fetchMessage(id) {
+      try {
+        const res = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          { headers: this.auth }
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        const h = (name) => data.payload.headers.find((hh) => hh.name === name)?.value ?? "";
+        return { id: data.id, subject: h("Subject"), from: h("From"), snippet: data.snippet, date: h("Date") };
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  // src/background/calendar.ts
+  var CalendarClient = class {
+    constructor(accessToken) {
+      this.accessToken = accessToken;
+    }
+    get auth() {
+      return { Authorization: `Bearer ${this.accessToken}` };
+    }
+    // ── Shared fetching core ───────────────────────────────────────────────────
+    async fetchAcrossAllCalendars(params) {
+      const calendarIds = /* @__PURE__ */ new Set(["primary"]);
+      let warning;
+      try {
+        const listRes = await fetch(
+          "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+          { headers: this.auth }
+        );
+        if (listRes.ok) {
+          const list = await listRes.json();
+          for (const c of list.items ?? []) calendarIds.add(c.id);
+        } else {
+          const body = await listRes.text().catch(() => "");
+          warning = `Could not load calendar list (${listRes.status}). ` + (listRes.status === 401 || listRes.status === 403 ? "Try disconnecting and reconnecting Google in Settings." : body.slice(0, 120));
+        }
+      } catch (e) {
+        warning = `Calendar list fetch failed: ${e.message}`;
+      }
+      const fetches = [...calendarIds].map(
+        (calId) => fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${params}`,
+          { headers: this.auth }
+        ).then(async (res) => {
+          if (!res.ok) return [];
+          const data = await res.json();
+          return (data.items ?? []).map((e) => ({
+            id: e.id,
+            title: e.summary ?? "(no title)",
+            start: e.start.dateTime ?? e.start.date ?? "",
+            end: e.end.dateTime ?? e.end.date ?? "",
+            description: e.description
+          }));
+        }).catch(() => [])
+      );
+      const batches = await Promise.all(fetches);
+      const seen = /* @__PURE__ */ new Set();
+      const all = [];
+      for (const batch of batches) {
+        for (const e of batch) {
+          if (e.id && !seen.has(e.id)) {
+            seen.add(e.id);
+            all.push(e);
+          }
+        }
+      }
+      all.sort((a, b) => a.start < b.start ? -1 : 1);
+      return { events: all, warning };
+    }
+    // ── Public API ─────────────────────────────────────────────────────────────
+    /**
+     * Fetch events across ALL calendars for the next `daysAhead` days.
+     * Returns { events, warning } — warning is set if calendarList failed.
+     */
+    async getUpcomingEvents(daysAhead = 14) {
+      const start = /* @__PURE__ */ new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(start.getDate() + daysAhead);
+      return this.fetchAcrossAllCalendars(new URLSearchParams({
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "250"
+      }));
+    }
+    /**
+     * Fetch events across ALL calendars for an arbitrary YYYY-MM-DD range.
+     * Used by the AI tool to look up events beyond the 14-day cache.
+     */
+    async getEventsForRange(startDate, endDate) {
+      const start = /* @__PURE__ */ new Date(`${startDate}T00:00:00`);
+      const end = /* @__PURE__ */ new Date(`${endDate}T23:59:59`);
+      const { events } = await this.fetchAcrossAllCalendars(new URLSearchParams({
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "250"
+      }));
+      return events;
+    }
+    async deleteEvent(eventId) {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+        { method: "DELETE", headers: this.auth }
+      );
+      if (!res.ok && res.status !== 410) {
+        throw new Error(`Calendar delete error ${res.status}: ${await res.text()}`);
+      }
+    }
+    async createEvent(event) {
+      const res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        {
+          method: "POST",
+          headers: { ...this.auth, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            summary: event.title,
+            description: event.description,
+            start: { dateTime: event.start, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+            end: { dateTime: event.end, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+          })
+        }
+      );
+      if (!res.ok) throw new Error(`Calendar create error ${res.status}: ${await res.text()}`);
+    }
+  };
+
+  // src/background/index.ts
+  var appState = {
+    tasks: [],
+    memory: defaultMemory2(),
+    calendarCache: [],
+    timer: defaultTimerState(),
+    blockState: { enabled: true, sites: [] },
+    lastSyncedAt: null
+  };
+  var settings = {
+    github: null,
+    ai: null,
+    google: null,
+    autoApproveAI: false,
+    focusDuration: 25 * 60,
+    breakDuration: 5 * 60,
+    longBreakDuration: 15 * 60
+  };
+  var ports = /* @__PURE__ */ new Set();
+  (async function boot() {
+    const [savedState, savedSettings] = await Promise.all([
+      Storage.getState(),
+      Storage.getSettings()
+    ]);
+    if (savedState) {
+      appState = savedState;
+      if (appState.timer.isRunning && appState.timer.startTime !== null) {
+        const remaining = getTimeRemaining(appState.timer);
+        if (remaining <= 0) {
+          const { state } = onTimerComplete(appState.timer);
+          appState.timer = state;
+        } else {
+          browser.alarms.create(ALARM_COMPLETE, { delayInMinutes: remaining / 60 });
+        }
+      }
+    }
+    if (savedSettings) settings = savedSettings;
+    browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
+    if (settings.github && !savedState) {
+      syncFromGitHub().catch((e) => console.warn("[styl] boot sync:", e));
+    }
+    refreshCalendarCache().catch(() => {
+    });
+  })();
+  async function refreshCalendarCache() {
+    const token = await ensureGoogleToken();
+    if (!token) return {};
+    const { events, warning } = await new CalendarClient(token).getUpcomingEvents(14);
+    appState.calendarCache = events;
+    await persistState();
+    broadcast({ type: "calendarData", events, error: warning });
+    return { warning };
+  }
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === ALARM_COMPLETE) {
+      const { state, prevMode } = onTimerComplete(appState.timer);
+      appState.timer = state;
+      browser.notifications.create("styl-done", {
+        type: "basic",
+        iconUrl: browser.runtime.getURL("icons/icon.svg"),
+        title: "Styl",
+        message: prevMode === "focus" ? `Time for a ${state.mode === "longBreak" ? "long " : ""}break!` : "Break over \u2014 back to focus."
+      });
+      persistState();
+      broadcast({ type: "stateUpdate", state: liveState(), event: "timerComplete" });
+    }
+    if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
+      broadcast({ type: "stateUpdate", state: liveState() });
+    }
+  });
+  browser.runtime.onConnect.addListener((port) => {
+    ports.add(port);
+    port.postMessage({ type: "stateUpdate", state: liveState() });
+    port.onMessage.addListener((msg) => handleMessage(msg, port));
+    port.onDisconnect.addListener(() => ports.delete(port));
+  });
+  function broadcast(msg) {
+    for (const p of ports) {
+      try {
+        p.postMessage(msg);
+      } catch {
+        ports.delete(p);
+      }
+    }
+  }
+  function broadcastState() {
+    broadcast({ type: "stateUpdate", state: liveState() });
+  }
+  function liveState() {
+    return {
+      ...appState,
+      timer: { ...appState.timer, pausedTimeRemaining: getTimeRemaining(appState.timer) }
+    };
+  }
+  browser.runtime.onMessage.addListener(
+    (msg, _sender, sendResponse) => {
+      if (msg.type === "getTimerState") {
+        sendResponse({ timeRemaining: getTimeRemaining(appState.timer), mode: appState.timer.mode });
+      }
+      return false;
+    }
+  );
+  async function handleMessage(msg, port) {
+    switch (msg.type) {
+      // ── Timer ────────────────────────────────────────────────────────────────
+      case "timerStart":
+        appState.timer = startTimer(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerPause":
+        appState.timer = pauseTimer(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerReset":
+        appState.timer = resetTimer(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerSkip":
+        appState.timer = skipTimer(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerSetMode":
+        appState.timer = setTimerMode(appState.timer, msg.mode);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerAddMinute":
+        appState.timer = addMinute(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      case "timerUpdateSettings": {
+        const t = appState.timer;
+        if (msg.focusDuration) appState.timer = { ...t, focusDuration: msg.focusDuration };
+        if (msg.breakDuration) appState.timer = { ...appState.timer, breakDuration: msg.breakDuration };
+        if (msg.longBreakDuration) appState.timer = { ...appState.timer, longBreakDuration: msg.longBreakDuration };
+        if (!t.isRunning) appState.timer = resetTimer(appState.timer);
+        await persistState();
+        broadcastState();
+        break;
+      }
+      // ── Tasks (manual CRUD) ──────────────────────────────────────────────────
+      case "createTask": {
+        appState.tasks.push(msg.task);
+        await persistState();
+        broadcastState();
+        githubSync((gh) => gh.writeTasks(appState.tasks, `task: add ${msg.task.title}`));
+        break;
+      }
+      case "updateTask": {
+        appState.tasks = appState.tasks.map((t) => t.id === msg.task.id ? msg.task : t);
+        await persistState();
+        broadcastState();
+        githubSync((gh) => gh.writeTasks(appState.tasks, `task: update ${msg.task.title}`));
+        break;
+      }
+      case "deleteTask": {
+        appState.tasks = appState.tasks.filter((t) => t.id !== msg.id);
+        await persistState();
+        broadcastState();
+        githubSync((gh) => gh.writeTasks(appState.tasks, `task: delete ${msg.id}`));
+        break;
+      }
+      case "reorderTasks": {
+        const idMap = new Map(appState.tasks.map((t) => [t.id, t]));
+        appState.tasks = msg.ids.filter((id) => idMap.has(id)).map((id) => idMap.get(id));
+        await persistState();
+        broadcastState();
+        githubSync((gh) => gh.writeTasks(appState.tasks, "task: reorder"));
+        break;
+      }
+      // ── AI ───────────────────────────────────────────────────────────────────
+      case "aiCommand": {
+        if (!settings.ai) {
+          port.postMessage({ type: "error", message: "AI not configured. Open Settings." });
+          break;
+        }
+        port.postMessage({ type: "aiThinking" });
+        try {
+          const calToken = await ensureGoogleToken();
+          if (calToken) {
+            try {
+              const { events } = await new CalendarClient(calToken).getUpcomingEvents(14);
+              appState.calendarCache = events;
+            } catch {
+            }
+          }
+          const fetchCalendar = settings.google ? async (start, end) => {
+            port.postMessage({ type: "aiToolUse", tool: "get_calendar_events", input: { start, end } });
+            const tok = await ensureGoogleToken();
+            if (!tok) return [];
+            return new CalendarClient(tok).getEventsForRange(start, end);
+          } : void 0;
+          const ai = new AIClient(settings.ai);
+          const res = await ai.sendCommand(
+            msg.prompt,
+            appState.tasks,
+            appState.memory,
+            appState.calendarCache,
+            msg.imageData,
+            fetchCalendar
+          );
+          const hasDeletes = res.actions.some((a) => a.type === "delete_task");
+          const needsApproval = !settings.autoApproveAI && hasDeletes;
+          if (!needsApproval) {
+            await doApplyAI(res, msg.prompt, port);
+          } else {
+            const { tasks: preview } = applyActions(appState.tasks, appState.memory, res.actions);
+            const diff = computeDiff(appState.tasks, preview);
+            port.postMessage({ type: "aiPendingApproval", response: res, diff });
+          }
+        } catch (e) {
+          port.postMessage({ type: "error", message: e.message });
+        }
+        break;
+      }
+      case "aiApprove":
+        await doApplyAI(msg.response, msg.prompt, port);
+        break;
+      case "aiReject":
+        port.postMessage({ type: "aiRejected" });
+        break;
+      case "undoLast": {
+        const snaps = await Storage.getSnapshots();
+        if (snaps.length < 2) {
+          port.postMessage({ type: "error", message: "Nothing to undo." });
+          break;
+        }
+        const prev = snaps[1];
+        appState.tasks = prev.tasks;
+        appState.memory = prev.memory;
+        await persistState();
+        broadcastState();
+        githubSync(async (gh) => {
+          await Promise.all([
+            gh.writeTasks(appState.tasks, "undo: revert tasks"),
+            gh.writeMemory(appState.memory, "undo: revert memory")
+          ]);
+        });
+        port.postMessage({ type: "undoComplete" });
+        break;
+      }
+      case "revertToSnapshot": {
+        const snaps = await Storage.getSnapshots();
+        const snap = snaps.find((s) => s.id === msg.snapshotId);
+        if (!snap) break;
+        appState.tasks = snap.tasks;
+        appState.memory = snap.memory;
+        await persistState();
+        broadcastState();
+        githubSync(async (gh) => {
+          await Promise.all([
+            gh.writeTasks(appState.tasks, `revert: snapshot ${snap.id}`),
+            gh.writeMemory(appState.memory, `revert: snapshot ${snap.id}`)
+          ]);
+        });
+        break;
+      }
+      case "syncNow": {
+        if (!settings.github) {
+          port.postMessage({ type: "error", message: "GitHub not configured." });
+          break;
+        }
+        try {
+          await syncFromGitHub();
+          port.postMessage({ type: "syncComplete" });
+        } catch (e) {
+          port.postMessage({ type: "error", message: e.message });
+        }
+        break;
+      }
+      // ── Settings ─────────────────────────────────────────────────────────────
+      case "settingsUpdated":
+        settings = msg.settings;
+        await Storage.setSettings(settings);
+        broadcastState();
+        break;
+      // ── Block state ───────────────────────────────────────────────────────────
+      case "setBlockEnabled":
+        appState.blockState.enabled = msg.enabled;
+        await persistState();
+        broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        break;
+      case "setBlockedSites":
+        appState.blockState.sites = msg.sites;
+        await persistState();
+        broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        break;
+      // ── Gmail ─────────────────────────────────────────────────────────────────
+      case "gmailScan": {
+        const token = await ensureGoogleToken();
+        if (!token) {
+          port.postMessage({ type: "error", message: "Gmail not connected." });
+          break;
+        }
+        try {
+          const gmail = new GmailClient(token);
+          const messages = await gmail.getRecentUnread();
+          port.postMessage({ type: "gmailMessages", messages });
+        } catch (e) {
+          port.postMessage({ type: "error", message: e.message });
+        }
+        break;
+      }
+      // ── Calendar ──────────────────────────────────────────────────────────────
+      case "calendarRefresh": {
+        const token = await ensureGoogleToken();
+        if (!token) {
+          port.postMessage({ type: "calendarData", events: [], error: "Google not connected." });
+          break;
+        }
+        try {
+          await refreshCalendarCache();
+        } catch (e) {
+          port.postMessage({ type: "calendarData", events: appState.calendarCache, error: e.message });
+        }
+        break;
+      }
+    }
+  }
+  async function doApplyAI(response, prompt, port) {
+    const before = clone(appState.tasks);
+    const { tasks, memory, calendarRequests, calendarDeleteRequests } = applyActions(
+      appState.tasks,
+      appState.memory,
+      response.actions
+    );
+    appState.tasks = tasks;
+    appState.memory = memory;
+    await persistState();
+    broadcastState();
+    let calendarNote = "";
+    if (calendarRequests.length || calendarDeleteRequests.length) {
+      const tok = await ensureGoogleToken();
+      if (!tok) {
+        calendarNote = "\n\n\u26A0 Google Calendar not connected \u2014 calendar change not saved. Connect it in Settings.";
+      } else {
+        try {
+          const cal = new CalendarClient(tok);
+          await Promise.all([
+            ...calendarRequests.map((r) => cal.createEvent(r)),
+            ...calendarDeleteRequests.map((id) => cal.deleteEvent(id))
+          ]);
+          const { events: refreshed } = await cal.getUpcomingEvents(14);
+          appState.calendarCache = refreshed;
+          await persistState();
+          broadcast({ type: "calendarData", events: refreshed });
+        } catch (e) {
+          calendarNote = `
+
+\u26A0 Calendar error: ${e.message}`;
+        }
+      }
+    }
+    if (settings.github) {
+      const gh = new GitHubClient(settings.github);
+      commitChange(gh, before, tasks, memory, prompt, response.actions.map((a) => a.type)).catch(console.warn);
+    }
+    port.postMessage({ type: "aiComplete", message: response.message + calendarNote });
+  }
+  async function syncFromGitHub() {
+    if (!settings.github) return;
+    const gh = new GitHubClient(settings.github);
+    await gh.bootstrap();
+    const [tasks, memory] = await Promise.all([gh.readTasks(), gh.readMemory()]);
+    appState.tasks = tasks;
+    appState.memory = memory;
+    appState.lastSyncedAt = isoNow();
+    await persistState();
+    broadcastState();
+  }
+  function githubSync(fn) {
+    if (!settings.github) return;
+    const gh = new GitHubClient(settings.github);
+    fn(gh).catch((e) => console.warn("[styl] gh sync:", e));
+  }
+  async function ensureGoogleToken() {
+    const g = settings.google;
+    if (!g) return null;
+    if (g.accessToken && g.tokenExpiry && Date.now() < g.tokenExpiry - 6e4) {
+      return g.accessToken;
+    }
+    if (!g.refreshToken || !g.clientId || !g.clientSecret) return g.accessToken ?? null;
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: g.clientId,
+          client_secret: g.clientSecret,
+          refresh_token: g.refreshToken,
+          grant_type: "refresh_token"
+        }).toString()
+      });
+      const data = await res.json();
+      if (data.error || !data.access_token) throw new Error(data.error ?? "no token");
+      settings.google = {
+        ...g,
+        accessToken: data.access_token,
+        tokenExpiry: Date.now() + (data.expires_in ?? 3600) * 1e3
+      };
+      await Storage.setSettings(settings);
+      return data.access_token;
+    } catch (e) {
+      console.warn("[styl] token refresh failed:", e);
+      return g.accessToken ?? null;
+    }
+  }
+  async function persistState() {
+    await Storage.setState(appState);
+  }
+  browser.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      const { enabled, sites } = appState.blockState;
+      if (!enabled || !sites.length) return {};
+      if (!appState.timer.isRunning || appState.timer.mode !== "focus") return {};
+      let host;
+      try {
+        host = new URL(details.url).hostname.replace(/^www\./, "");
+      } catch {
+        return {};
+      }
+      const blocked = sites.some((s) => host === s || host.endsWith("." + s));
+      if (!blocked) return {};
+      return {
+        redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host)
+      };
+    },
+    { urls: ["<all_urls>"], types: ["main_frame"] },
+    ["blocking"]
+  );
+  function defaultMemory2() {
+    return {
+      preferences: {},
+      recurring_events: [],
+      habits: [],
+      task_patterns: {},
+      known_entities: {}
+    };
+  }
+})();
+//# sourceMappingURL=background.js.map

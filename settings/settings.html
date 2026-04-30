@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Styl — Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<div class="settings-page">
+
+  <div class="settings-header">
+    <span class="brand">Styl</span>
+    <span class="settings-title">Settings</span>
+  </div>
+
+  <!-- Tab nav -->
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="ai">AI</button>
+    <button class="tab-btn" data-tab="github">GitHub</button>
+    <button class="tab-btn" data-tab="google">Google</button>
+    <button class="tab-btn" data-tab="timer">Timer</button>
+    <button class="tab-btn" data-tab="history">History</button>
+  </div>
+
+  <!-- Status message -->
+  <div class="status-msg hidden" id="status-msg"></div>
+
+  <!-- ── AI tab ───────────────────────────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-ai">
+    <div class="section-label">AI Provider</div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-provider">Provider</label>
+      <select id="ai-provider" class="field-select">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+      </select>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-key">API Key</label>
+      <input id="ai-key" type="password" class="field-input" placeholder="sk-ant-… or sk-…" autocomplete="off">
+      <div class="field-hint">Stored locally only. Never sent to GitHub.</div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="ai-model">Model <span class="optional">(optional)</span></label>
+      <input id="ai-model" type="text" class="field-input" placeholder="e.g. claude-haiku-4-5-20251001">
+      <div class="field-hint">Leave blank for the default fast model.</div>
+    </div>
+
+    <div class="field-group row">
+      <label class="field-label" for="auto-approve">Auto-approve AI changes</label>
+      <label class="toggle">
+        <input type="checkbox" id="auto-approve">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+    </div>
+    <div class="field-hint indent">When off, changes require your approval before applying.</div>
+  </div>
+
+  <!-- ── GitHub tab ───────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-github">
+    <div class="section-label">GitHub Storage</div>
+
+    <!-- Connected state -->
+    <div id="github-connected" class="hidden">
+      <div class="github-account-row">
+        <div class="github-account-icon">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="white">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="github-account-label" id="github-account-label">@username</div>
+          <div class="github-account-sub" id="github-account-sub">Connected</div>
+        </div>
+        <button class="btn-secondary" id="disconnect-github-btn">Sign out</button>
+      </div>
+
+      <div class="field-group" style="margin-top:16px">
+        <label class="field-label" for="gh-repo-select">Repository</label>
+        <select id="gh-repo-select" class="field-select">
+          <option value="">Loading repositories…</option>
+        </select>
+        <div class="field-hint">Pick an existing repo or <a class="ext-link" href="https://github.com/new" target="_blank">create a private one</a>.</div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="gh-branch">Branch</label>
+        <input id="gh-branch" type="text" class="field-input" placeholder="main" autocomplete="off">
+      </div>
+
+      <button class="btn-secondary" id="test-github-btn">Test &amp; bootstrap repo</button>
+    </div>
+
+    <!-- Disconnected state -->
+    <div id="github-disconnected">
+      <div class="oauth-steps" style="margin-bottom:16px">
+        <div class="oauth-step">
+          <span class="step-num">1</span>
+          <div>Click <strong>Get GitHub Token</strong> — GitHub opens with all permissions pre-filled.</div>
+        </div>
+        <div class="oauth-step">
+          <span class="step-num">2</span>
+          <div>Scroll to the bottom of that page and click <strong>Generate token</strong>, then copy it.</div>
+        </div>
+        <div class="oauth-step">
+          <span class="step-num">3</span>
+          <div>Paste it below — Styl connects automatically and creates your data repo.</div>
+        </div>
+      </div>
+
+      <button class="btn-github" id="open-github-pat-btn">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        Get GitHub Token
+      </button>
+
+      <div class="field-group" style="margin-top:16px">
+        <label class="field-label" for="gh-token-paste">Paste token here</label>
+        <input id="gh-token-paste" type="password" class="field-input"
+               placeholder="ghp_… or github_pat_…" autocomplete="off">
+        <div class="field-hint">Stored locally only — never sent anywhere except api.github.com.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Google tab ───────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-google">
+    <div class="section-label">Google Integration</div>
+
+    <!-- Connected state -->
+    <div id="google-connected" class="hidden">
+      <div class="google-account-row">
+        <div class="google-account-icon">G</div>
+        <div>
+          <div class="google-account-label">Connected</div>
+          <div class="google-account-sub" id="google-account-sub">Gmail + Calendar active</div>
+        </div>
+        <button class="btn-secondary" id="disconnect-google-btn">Sign out</button>
+      </div>
+    </div>
+
+    <!-- Not connected state -->
+    <div id="google-disconnected">
+      <!-- One-time credential setup (collapsible) -->
+      <details class="setup-details">
+        <summary class="setup-summary">
+          First time? One-time setup (≈ 5 min)
+          <span class="setup-chevron">▸</span>
+        </summary>
+        <div class="oauth-steps">
+          <div class="oauth-step">
+            <span class="step-num">1</span>
+            <div>Go to <a class="ext-link" href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> → create a new project (e.g. "Styl").</div>
+          </div>
+          <div class="oauth-step">
+            <span class="step-num">2</span>
+            <div>Search for <strong>Gmail API</strong> and <strong>Google Calendar API</strong> → Enable both.</div>
+          </div>
+          <div class="oauth-step">
+            <span class="step-num">3</span>
+            <div>Go to <strong>APIs &amp; Services → Credentials → Create Credentials → OAuth client ID</strong> → choose <strong>Web application</strong>.</div>
+          </div>
+          <div class="oauth-step">
+            <span class="step-num">4</span>
+            <div>
+              Under <strong>Authorized redirect URIs</strong>, add this URI exactly:
+              <div class="redirect-uri-box">
+                <code id="redirect-uri-display">loading…</code>
+                <button class="copy-btn" id="copy-redirect-uri" title="Copy">⧉</button>
+              </div>
+            </div>
+          </div>
+          <div class="oauth-step">
+            <span class="step-num">5</span>
+            <div>Copy the <strong>Client ID</strong> and <strong>Client secret</strong> → paste below → click Sign in. Done forever.</div>
+          </div>
+          <div class="oauth-step">
+            <span class="step-num">6</span>
+            <div>If Google shows "App not verified", click <strong>Advanced → Go to Styl (unsafe)</strong>. This is normal for personal apps.</div>
+          </div>
+        </div>
+      </details>
+
+      <div class="field-group" style="margin-top:16px">
+        <label class="field-label" for="google-client-id">Client ID</label>
+        <input id="google-client-id" type="text" class="field-input"
+               placeholder="123456789-abc.apps.googleusercontent.com" autocomplete="off">
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="google-client-secret">Client Secret</label>
+        <input id="google-client-secret" type="password" class="field-input"
+               placeholder="GOCSPX-…" autocomplete="off">
+        <div class="field-hint">Stored locally only. Never sent to GitHub or anywhere else.</div>
+      </div>
+
+      <button class="btn-google" id="connect-google-btn" disabled>
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        Sign in with Google
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Timer tab ────────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-timer">
+    <div class="section-label">Timer Defaults</div>
+
+    <div class="field-group">
+      <label class="field-label" for="focus-dur">Focus duration (minutes)</label>
+      <input id="focus-dur" type="number" class="field-input narrow" min="1" max="180" value="25">
+    </div>
+    <div class="field-group">
+      <label class="field-label" for="break-dur">Short break (minutes)</label>
+      <input id="break-dur" type="number" class="field-input narrow" min="1" max="60" value="5">
+    </div>
+    <div class="field-group">
+      <label class="field-label" for="long-break-dur">Long break (minutes)</label>
+      <input id="long-break-dur" type="number" class="field-input narrow" min="1" max="90" value="15">
+    </div>
+  </div>
+
+  <!-- ── History tab ──────────────────────────────────────────────────────── -->
+  <div class="tab-panel hidden" id="tab-history">
+    <div class="section-label">Snapshot History</div>
+    <div class="field-hint" style="margin-bottom:12px">
+      Every AI action creates a snapshot. Revert to any point in time.
+    </div>
+    <div class="snapshot-list" id="snapshot-list">
+      <div class="snap-empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Save button (always visible) -->
+  <div class="settings-footer">
+    <button class="btn-primary" id="save-btn">Save settings</button>
+  </div>
+
+</div>
+
+<script src="../dist/settings.js"></script>
+</body>
+</html>

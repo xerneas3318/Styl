@@ -116,13 +116,15 @@ function renderTimer() {
     document.getElementById('time-text').textContent = fmt(state.timeRemaining);
   }
 
-  const total    = totalFor(state.mode);
+  const total    = state.sessionTotal || totalFor(state.mode);
   const progress = state.timeRemaining / total;
   const offset   = (1 - progress) * RING_CIRCUMFERENCE;
   document.getElementById('progress-ring').style.strokeDashoffset = offset;
 
   document.getElementById('start-pause-btn').textContent =
     state.isRunning ? 'Pause' : 'Start';
+
+  document.getElementById('add-min-btn').classList.toggle('hidden', !state.isRunning);
 
   const dots = document.getElementById('sessions-dots');
   dots.innerHTML = '';
@@ -230,6 +232,9 @@ document.getElementById('reset-btn').addEventListener('click', () =>
 
 document.getElementById('skip-btn').addEventListener('click', () =>
   port.postMessage({ type: 'skip' }));
+
+document.getElementById('add-min-btn').addEventListener('click', () =>
+  port.postMessage({ type: 'addMinute' }));
 
 // ── Daily focus (persisted in localStorage) ───────────────────────────────────
 

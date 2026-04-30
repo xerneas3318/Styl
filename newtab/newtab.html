@@ -7,28 +7,90 @@
   <link rel="stylesheet" href="newtab.css">
 </head>
 <body class="night">
-  <div class="page">
+<div class="page">
 
-    <!-- Clock & date -->
-    <div class="hero">
-      <div class="clock" id="clock">00:00</div>
-      <div class="date"  id="date"></div>
-      <div class="greeting" id="greeting"></div>
+  <!-- Clock & greeting -->
+  <div class="hero">
+    <div class="clock"    id="clock">00:00</div>
+    <div class="date"     id="date"></div>
+    <div class="greeting" id="greeting"></div>
+  </div>
+
+  <!-- Daily focus -->
+  <div class="focus-block">
+    <input class="focus-input" id="focus-input" type="text"
+      placeholder="What is your main focus today?"
+      maxlength="120" autocomplete="off" spellcheck="false">
+  </div>
+
+  <!-- AI panel -->
+  <div class="ai-panel" id="ai-panel">
+    <div class="ai-panel-hdr">
+      <span class="ai-panel-title">Assistant</span>
+      <div class="ai-panel-hdr-actions">
+        <button class="ai-hdr-btn" id="ai-clear-btn" title="Clear conversation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <!-- Daily focus -->
-    <div class="focus-block">
-      <div class="focus-label">What is your main focus today?</div>
-      <input
-        class="focus-input"
-        id="focus-input"
-        type="text"
-        placeholder="Enter your intention…"
-        maxlength="120"
-        autocomplete="off"
-        spellcheck="false"
-      >
+    <div class="ai-messages" id="ai-messages">
+      <div class="ai-empty" id="ai-empty">
+        <div class="ai-empty-icon">✦</div>
+        <div class="ai-empty-hints">
+          <span>Type <kbd>/</kbd> for commands</span>
+          <span class="ai-hint-sep">·</span>
+          <span>Paste images with <kbd>⌘V</kbd></span>
+        </div>
+      </div>
     </div>
+
+    <div class="ai-panel-footer">
+      <div class="slash-menu hidden" id="slash-menu"></div>
+      <div class="ai-approval hidden" id="ai-actions">
+        <button class="ai-appr-btn approve" id="ai-approve-btn">Apply changes</button>
+        <button class="ai-appr-btn reject"  id="ai-reject-btn">Discard</button>
+      </div>
+      <div class="ai-attachments" id="ai-attachments"></div>
+      <div class="ai-input-row">
+        <textarea class="ai-textarea" id="ai-input" rows="1"
+          placeholder="Ask anything or type / for commands…"
+          autocomplete="off" spellcheck="false"></textarea>
+        <button class="ai-icon-btn" id="ai-img-btn" title="Attach image (or paste ⌘V)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </button>
+        <input type="file" id="ai-img" accept="image/*" hidden>
+        <button class="ai-send-btn" id="ai-send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calendar panel -->
+  <div class="cal-panel hidden" id="cal-panel">
+    <div class="cal-header">
+      <span class="cal-header-date" id="cal-header-date"></span>
+      <div class="cal-view-tabs">
+        <button class="cal-tab active" data-view="day">Day</button>
+        <button class="cal-tab"        data-view="week">Week</button>
+      </div>
+    </div>
+    <div class="cal-body" id="cal-body"></div>
+  </div>
+
+  <!-- Main grid: timer + tasks -->
+  <div class="main-grid">
 
     <!-- Timer card -->
     <div class="timer-card">
@@ -38,19 +100,22 @@
         <button class="mode-tab" data-mode="longBreak">Long Break</button>
       </div>
 
-      <div class="ring-wrap">
-        <svg viewBox="0 0 160 160" class="ring-svg">
-          <circle class="ring-bg" cx="80" cy="80" r="68"/>
-          <circle class="ring-fg" id="progress-ring" cx="80" cy="80" r="68"
-            stroke-dasharray="427.26" stroke-dashoffset="0"/>
-        </svg>
-        <div class="timer-display">
-          <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
-          <div class="time-editor hidden" id="time-editor">
-            <input type="number" id="time-edit" min="1" max="180" placeholder="25">
-            <span class="edit-unit">min</span>
+      <div class="ring-area">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 160 160" class="ring-svg">
+            <circle class="ring-bg" cx="80" cy="80" r="68"/>
+            <circle class="ring-fg" id="progress-ring" cx="80" cy="80" r="68"
+              stroke-dasharray="427.26" stroke-dashoffset="0"/>
+          </svg>
+          <div class="timer-display">
+            <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
+            <div class="time-editor hidden" id="time-editor">
+              <input type="number" id="time-edit" min="1" max="180" placeholder="25">
+              <span class="edit-unit">min</span>
+            </div>
           </div>
         </div>
+        <button class="add-min-btn hidden" id="add-min-btn" title="Add 1 minute">+1 min</button>
       </div>
       <div class="preset-bar hidden" id="preset-bar"></div>
 
@@ -76,29 +141,83 @@
       </div>
     </div>
 
-    <!-- Quote -->
-    <div class="quote" id="quote"></div>
+    <!-- Task panel -->
+    <div class="task-panel">
+      <div class="task-panel-header">
+        <span class="task-panel-title">Tasks</span>
+        <div class="task-panel-actions">
+          <button class="tp-icon-btn" id="undo-btn" title="Undo last AI action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <polyline points="1 4 1 10 7 10"/>
+              <path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
+            </svg>
+          </button>
+          <button class="tp-icon-btn" id="settings-btn" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="task-list" id="task-list"></div>
+      <div class="task-add-row">
+        <input class="task-add-input" id="task-add-input" type="text"
+          placeholder="Add a task…" autocomplete="off" spellcheck="false">
+        <button class="task-add-btn" id="task-add-btn">+</button>
+      </div>
+    </div>
 
+  </div><!-- /main-grid -->
+
+  <!-- Quote -->
+  <div class="quote" id="quote"></div>
+
+</div><!-- /page -->
+
+<!-- Diff overlay -->
+<div class="diff-overlay hidden" id="diff-overlay">
+  <div class="diff-card">
+    <div class="diff-card-header">Review AI changes</div>
+    <div class="diff-content" id="diff-content"></div>
+    <div class="diff-card-footer">
+      <button class="diff-btn approve" id="diff-approve-btn">Apply</button>
+      <button class="diff-btn reject"  id="diff-reject-btn">Cancel</button>
+    </div>
   </div>
+</div>
 
-  <!-- Wallpaper controls (bottom-right corner) -->
-  <div class="wallpaper-controls">
-    <input type="file" id="wallpaper-file" accept="image/*" hidden>
-    <button class="wallpaper-btn" id="wallpaper-upload-btn" title="Change wallpaper">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-        <circle cx="12" cy="13" r="4"/>
-      </svg>
-    </button>
-    <button class="wallpaper-btn wallpaper-remove hidden" id="wallpaper-remove-btn" title="Remove wallpaper">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <line x1="18" y1="6" x2="6" y2="18"/>
-        <line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
-    </button>
+<!-- Group merge dialog -->
+<div class="group-dialog-overlay hidden" id="group-dialog">
+  <div class="group-dialog-card">
+    <div class="group-dialog-title">Add to group</div>
+    <input class="group-dialog-input" id="group-dialog-input"
+      type="text" placeholder="Group name…" autocomplete="off" spellcheck="false">
+    <div class="group-dialog-footer">
+      <button class="group-dialog-btn confirm" id="group-dialog-confirm">Add</button>
+      <button class="group-dialog-btn cancel"  id="group-dialog-cancel">Cancel</button>
+    </div>
   </div>
+</div>
 
-  <script src="../shared/sound.js"></script>
-  <script src="newtab.js"></script>
+<!-- Wallpaper controls -->
+<div class="wallpaper-controls">
+  <input type="file" id="wallpaper-file" accept="image/*" hidden>
+  <button class="wallpaper-btn" id="wallpaper-upload-btn" title="Change wallpaper">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+  </button>
+  <button class="wallpaper-btn wallpaper-remove hidden" id="wallpaper-remove-btn" title="Remove wallpaper">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  </button>
+</div>
+
+<script src="../shared/sound.js"></script>
+<script src="../dist/newtab.js"></script>
 </body>
 </html>

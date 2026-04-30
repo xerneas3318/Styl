@@ -1,0 +1,541 @@
+import { Storage } from '../shared/storage';
+import { isoNow, generateId, clone } from '../shared/utils';
+import type { AppState, AppSettings, Task, Memory, TimerMode, AIResponse, BgMessage } from '../shared/types';
+
+import {
+  defaultTimerState, getTimeRemaining,
+  startTimer, pauseTimer, resetTimer, skipTimer,
+  setTimerMode, addMinute, onTimerComplete,
+  ALARM_COMPLETE, ALARM_KEEPALIVE,
+} from './timer';
+import { GitHubClient }                      from './github';
+import { AIClient, applyActions }            from './ai';
+import type { CalendarFetcher }              from './ai';
+import { commitChange, computeDiff, createSnapshot } from './version-control';
+import { GmailClient }                       from './gmail';
+import { CalendarClient }                    from './calendar';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let appState: AppState = {
+  tasks:         [],
+  memory:        defaultMemory(),
+  calendarCache: [],
+  timer:         defaultTimerState(),
+  blockState:    { enabled: true, sites: [] },
+  lastSyncedAt:  null,
+};
+
+let settings: AppSettings = {
+  github:            null,
+  ai:                null,
+  google:            null,
+  autoApproveAI:     false,
+  focusDuration:     25 * 60,
+  breakDuration:     5  * 60,
+  longBreakDuration: 15 * 60,
+};
+
+const ports = new Set<browser.runtime.Port>();
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+(async function boot() {
+  const [savedState, savedSettings] = await Promise.all([
+    Storage.getState(),
+    Storage.getSettings(),
+  ]);
+
+  if (savedState) {
+    appState = savedState;
+    // Repair timer if background was killed while running
+    if (appState.timer.isRunning && appState.timer.startTime !== null) {
+      const remaining = getTimeRemaining(appState.timer);
+      if (remaining <= 0) {
+        const { state } = onTimerComplete(appState.timer);
+        appState.timer  = state;
+      } else {
+        // Re-set alarm for the remaining time
+        browser.alarms.create(ALARM_COMPLETE, { delayInMinutes: remaining / 60 });
+      }
+    }
+  }
+
+  if (savedSettings) settings = savedSettings;
+
+  // Keep-alive alarm — prevents service worker from sleeping mid-session
+  browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
+
+  // Only pull from GitHub on boot when there is NO local state (first-time setup
+  // on a new device). If local state exists, trust it — a boot sync would race
+  // with any in-flight AI writes and silently overwrite tasks with stale GitHub data.
+  if (settings.github && !savedState) {
+    syncFromGitHub().catch((e) => console.warn('[styl] boot sync:', e));
+  }
+
+  // Populate calendar cache on boot so the newtab strip is ready immediately
+  refreshCalendarCache().catch(() => {});
+})();
+
+async function refreshCalendarCache(): Promise<{ warning?: string }> {
+  const token = await ensureGoogleToken();
+  if (!token) return {};
+  const { events, warning } = await new CalendarClient(token).getUpcomingEvents(14);
+  appState.calendarCache = events;
+  await persistState();
+  broadcast({ type: 'calendarData', events, error: warning });
+  return { warning };
+}
+
+// ── Alarms ────────────────────────────────────────────────────────────────────
+
+browser.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_COMPLETE) {
+    const { state, prevMode } = onTimerComplete(appState.timer);
+    appState.timer = state;
+
+    browser.notifications.create('styl-done', {
+      type:     'basic',
+      iconUrl:  browser.runtime.getURL('icons/icon.svg'),
+      title:    'Styl',
+      message:  prevMode === 'focus'
+        ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
+        : 'Break over — back to focus.',
+    });
+
+    persistState();
+    broadcast({ type: 'stateUpdate', state: liveState(), event: 'timerComplete' });
+  }
+
+  if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
+    broadcast({ type: 'stateUpdate', state: liveState() });
+  }
+});
+
+// ── Port management ───────────────────────────────────────────────────────────
+
+browser.runtime.onConnect.addListener((port) => {
+  ports.add(port);
+  port.postMessage({ type: 'stateUpdate', state: liveState() });
+  port.onMessage.addListener((msg: BgMessage) => handleMessage(msg, port));
+  port.onDisconnect.addListener(() => ports.delete(port));
+});
+
+function broadcast(msg: unknown): void {
+  for (const p of ports) {
+    try   { p.postMessage(msg); }
+    catch { ports.delete(p);   }
+  }
+}
+
+function broadcastState(): void {
+  broadcast({ type: 'stateUpdate', state: liveState() });
+}
+
+/** State snapshot with live timer value injected. */
+function liveState(): AppState {
+  return {
+    ...appState,
+    timer: { ...appState.timer, pausedTimeRemaining: getTimeRemaining(appState.timer) },
+  };
+}
+
+// ── One-shot messages (for blocked page) ──────────────────────────────────────
+
+browser.runtime.onMessage.addListener(
+  (msg: { type: string }, _sender, sendResponse: (r: unknown) => void) => {
+    if (msg.type === 'getTimerState') {
+      sendResponse({ timeRemaining: getTimeRemaining(appState.timer), mode: appState.timer.mode });
+    }
+    return false;
+  }
+);
+
+// ── Message handler ───────────────────────────────────────────────────────────
+
+async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promise<void> {
+  switch (msg.type) {
+
+    // ── Timer ────────────────────────────────────────────────────────────────
+
+    case 'timerStart':
+      appState.timer = startTimer(appState.timer);
+      await persistState(); broadcastState(); break;
+
+    case 'timerPause':
+      appState.timer = pauseTimer(appState.timer);
+      await persistState(); broadcastState(); break;
+
+    case 'timerReset':
+      appState.timer = resetTimer(appState.timer);
+      await persistState(); broadcastState(); break;
+
+    case 'timerSkip':
+      appState.timer = skipTimer(appState.timer);
+      await persistState(); broadcastState(); break;
+
+    case 'timerSetMode':
+      appState.timer = setTimerMode(appState.timer, msg.mode as TimerMode);
+      await persistState(); broadcastState(); break;
+
+    case 'timerAddMinute':
+      appState.timer = addMinute(appState.timer);
+      await persistState(); broadcastState(); break;
+
+    case 'timerUpdateSettings': {
+      const t = appState.timer;
+      if (msg.focusDuration)     appState.timer = { ...t, focusDuration:     msg.focusDuration };
+      if (msg.breakDuration)     appState.timer = { ...appState.timer, breakDuration:     msg.breakDuration };
+      if (msg.longBreakDuration) appState.timer = { ...appState.timer, longBreakDuration: msg.longBreakDuration };
+      if (!t.isRunning) appState.timer = resetTimer(appState.timer);
+      await persistState(); broadcastState(); break;
+    }
+
+    // ── Tasks (manual CRUD) ──────────────────────────────────────────────────
+
+    case 'createTask': {
+      appState.tasks.push(msg.task);
+      await persistState(); broadcastState();
+      githubSync((gh) => gh.writeTasks(appState.tasks, `task: add ${msg.task.title}`));
+      break;
+    }
+
+    case 'updateTask': {
+      appState.tasks = appState.tasks.map((t) => t.id === msg.task.id ? msg.task : t);
+      await persistState(); broadcastState();
+      githubSync((gh) => gh.writeTasks(appState.tasks, `task: update ${msg.task.title}`));
+      break;
+    }
+
+    case 'deleteTask': {
+      appState.tasks = appState.tasks.filter((t) => t.id !== msg.id);
+      await persistState(); broadcastState();
+      githubSync((gh) => gh.writeTasks(appState.tasks, `task: delete ${msg.id}`));
+      break;
+    }
+
+    case 'reorderTasks': {
+      const idMap = new Map(appState.tasks.map((t) => [t.id, t]));
+      appState.tasks = msg.ids.filter((id) => idMap.has(id)).map((id) => idMap.get(id)!);
+      await persistState(); broadcastState();
+      githubSync((gh) => gh.writeTasks(appState.tasks, 'task: reorder'));
+      break;
+    }
+
+    // ── AI ───────────────────────────────────────────────────────────────────
+
+    case 'aiCommand': {
+      if (!settings.ai) {
+        port.postMessage({ type: 'error', message: 'AI not configured. Open Settings.' });
+        break;
+      }
+      port.postMessage({ type: 'aiThinking' });
+      try {
+        // Refresh the 14-day cache so the AI has up-to-date near-future events
+        const calToken = await ensureGoogleToken();
+        if (calToken) {
+          try {
+            const { events } = await new CalendarClient(calToken).getUpcomingEvents(14);
+            appState.calendarCache = events;
+          } catch { /* keep last known good data */ }
+        }
+
+        // Live fetcher passed to the AI as a tool — lets it query any date range on demand
+        const fetchCalendar: CalendarFetcher | undefined = settings.google
+          ? async (start, end) => {
+              port.postMessage({ type: 'aiToolUse', tool: 'get_calendar_events', input: { start, end } });
+              const tok = await ensureGoogleToken();
+              if (!tok) return [];
+              return new CalendarClient(tok).getEventsForRange(start, end);
+            }
+          : undefined;
+
+        const ai  = new AIClient(settings.ai);
+        const res = await ai.sendCommand(
+          msg.prompt, appState.tasks, appState.memory, appState.calendarCache,
+          msg.imageData, fetchCalendar,
+        );
+
+        // Only hold for approval when deleting tasks and auto-approve is off.
+        // Creates, updates, and plan actions apply immediately — prevents the AI from
+        // saying "I added your task" while the task sits unapplied behind a diff overlay.
+        const hasDeletes = res.actions.some((a) => a.type === 'delete_task');
+        const needsApproval = !settings.autoApproveAI && hasDeletes;
+
+        if (!needsApproval) {
+          await doApplyAI(res, msg.prompt, port);
+        } else {
+          const { tasks: preview } = applyActions(appState.tasks, appState.memory, res.actions);
+          const diff = computeDiff(appState.tasks, preview);
+          port.postMessage({ type: 'aiPendingApproval', response: res, diff });
+        }
+      } catch (e) {
+        port.postMessage({ type: 'error', message: (e as Error).message });
+      }
+      break;
+    }
+
+    case 'aiApprove':
+      await doApplyAI(msg.response, msg.prompt, port);
+      break;
+
+    case 'aiReject':
+      port.postMessage({ type: 'aiRejected' });
+      break;
+
+    case 'undoLast': {
+      const snaps = await Storage.getSnapshots();
+      if (snaps.length < 2) {
+        port.postMessage({ type: 'error', message: 'Nothing to undo.' }); break;
+      }
+      const prev = snaps[1];
+      appState.tasks  = prev.tasks;
+      appState.memory = prev.memory;
+      await persistState(); broadcastState();
+      githubSync(async (gh) => {
+        await Promise.all([
+          gh.writeTasks(appState.tasks,   'undo: revert tasks'),
+          gh.writeMemory(appState.memory, 'undo: revert memory'),
+        ]);
+      });
+      port.postMessage({ type: 'undoComplete' });
+      break;
+    }
+
+    case 'revertToSnapshot': {
+      const snaps = await Storage.getSnapshots();
+      const snap  = snaps.find((s) => s.id === msg.snapshotId);
+      if (!snap) break;
+      appState.tasks  = snap.tasks;
+      appState.memory = snap.memory;
+      await persistState(); broadcastState();
+      githubSync(async (gh) => {
+        await Promise.all([
+          gh.writeTasks(appState.tasks,   `revert: snapshot ${snap.id}`),
+          gh.writeMemory(appState.memory, `revert: snapshot ${snap.id}`),
+        ]);
+      });
+      break;
+    }
+
+    case 'syncNow': {
+      if (!settings.github) {
+        port.postMessage({ type: 'error', message: 'GitHub not configured.' }); break;
+      }
+      try   { await syncFromGitHub(); port.postMessage({ type: 'syncComplete' }); }
+      catch (e) { port.postMessage({ type: 'error', message: (e as Error).message }); }
+      break;
+    }
+
+    // ── Settings ─────────────────────────────────────────────────────────────
+
+    case 'settingsUpdated':
+      settings = msg.settings;
+      await Storage.setSettings(settings);
+      broadcastState();
+      break;
+
+    // ── Block state ───────────────────────────────────────────────────────────
+
+    case 'setBlockEnabled':
+      appState.blockState.enabled = msg.enabled;
+      await persistState();
+      broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      break;
+
+    case 'setBlockedSites':
+      appState.blockState.sites = msg.sites;
+      await persistState();
+      broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      break;
+
+    // ── Gmail ─────────────────────────────────────────────────────────────────
+
+    case 'gmailScan': {
+      const token = await ensureGoogleToken();
+      if (!token) {
+        port.postMessage({ type: 'error', message: 'Gmail not connected.' }); break;
+      }
+      try {
+        const gmail    = new GmailClient(token);
+        const messages = await gmail.getRecentUnread();
+        port.postMessage({ type: 'gmailMessages', messages });
+      } catch (e) {
+        port.postMessage({ type: 'error', message: (e as Error).message });
+      }
+      break;
+    }
+
+    // ── Calendar ──────────────────────────────────────────────────────────────
+
+    case 'calendarRefresh': {
+      const token = await ensureGoogleToken();
+      if (!token) {
+        port.postMessage({ type: 'calendarData', events: [], error: 'Google not connected.' });
+        break;
+      }
+      // refreshCalendarCache() already broadcasts calendarData to all ports (including this one)
+      try   { await refreshCalendarCache(); }
+      catch (e) { port.postMessage({ type: 'calendarData', events: appState.calendarCache, error: (e as Error).message }); }
+      break;
+    }
+  }
+}
+
+// ── AI apply helper ───────────────────────────────────────────────────────────
+
+async function doApplyAI(
+  response: AIResponse,
+  prompt:   string,
+  port:     browser.runtime.Port,
+): Promise<void> {
+  const before = clone(appState.tasks);
+  const { tasks, memory, calendarRequests, calendarDeleteRequests } = applyActions(
+    appState.tasks, appState.memory, response.actions
+  );
+  appState.tasks  = tasks;
+  appState.memory = memory;
+  await persistState();
+  broadcastState();
+
+  let calendarNote = '';
+  if (calendarRequests.length || calendarDeleteRequests.length) {
+    const tok = await ensureGoogleToken();
+    if (!tok) {
+      calendarNote = '\n\n⚠ Google Calendar not connected — calendar change not saved. Connect it in Settings.';
+    } else {
+      try {
+        const cal = new CalendarClient(tok);
+        await Promise.all([
+          ...calendarRequests.map((r) => cal.createEvent(r)),
+          ...calendarDeleteRequests.map((id) => cal.deleteEvent(id)),
+        ]);
+        // Refresh cache and push updated events to all open newtab pages
+        const { events: refreshed } = await cal.getUpcomingEvents(14);
+        appState.calendarCache = refreshed;
+        await persistState();
+        broadcast({ type: 'calendarData', events: refreshed });
+      } catch (e) {
+        calendarNote = `\n\n⚠ Calendar error: ${(e as Error).message}`;
+      }
+    }
+  }
+
+  if (settings.github) {
+    const gh = new GitHubClient(settings.github);
+    commitChange(gh, before, tasks, memory, prompt, response.actions.map((a) => a.type))
+      .catch(console.warn);
+  }
+
+  port.postMessage({ type: 'aiComplete', message: response.message + calendarNote });
+}
+
+// ── GitHub sync ───────────────────────────────────────────────────────────────
+
+async function syncFromGitHub(): Promise<void> {
+  if (!settings.github) return;
+  const gh = new GitHubClient(settings.github);
+  await gh.bootstrap();
+  const [tasks, memory] = await Promise.all([gh.readTasks(), gh.readMemory()]);
+  appState.tasks       = tasks;
+  appState.memory      = memory;
+  appState.lastSyncedAt = isoNow();
+  await persistState();
+  broadcastState();
+}
+
+/** Fire-and-forget GitHub operation, guarded by settings check. */
+function githubSync(fn: (gh: GitHubClient) => Promise<void>): void {
+  if (!settings.github) return;
+  const gh = new GitHubClient(settings.github);
+  fn(gh).catch((e) => console.warn('[styl] gh sync:', e));
+}
+
+// ── Google token refresh ──────────────────────────────────────────────────────
+
+/** Returns a valid access token, refreshing if necessary. Returns null if not connected. */
+async function ensureGoogleToken(): Promise<string | null> {
+  const g = settings.google;
+  if (!g) return null;
+
+  // Token still valid (with 60 s buffer)
+  if (g.accessToken && g.tokenExpiry && Date.now() < g.tokenExpiry - 60_000) {
+    return g.accessToken;
+  }
+
+  // Attempt refresh
+  if (!g.refreshToken || !g.clientId || !g.clientSecret) return g.accessToken ?? null;
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        client_id:     g.clientId,
+        client_secret: g.clientSecret,
+        refresh_token: g.refreshToken,
+        grant_type:    'refresh_token',
+      }).toString(),
+    });
+    const data = await res.json() as {
+      access_token?: string;
+      expires_in?:   number;
+      error?:        string;
+    };
+    if (data.error || !data.access_token) throw new Error(data.error ?? 'no token');
+
+    settings.google = {
+      ...g,
+      accessToken: data.access_token,
+      tokenExpiry: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+    await Storage.setSettings(settings);
+    return data.access_token;
+  } catch (e) {
+    console.warn('[styl] token refresh failed:', e);
+    return g.accessToken ?? null;
+  }
+}
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+async function persistState(): Promise<void> {
+  await Storage.setState(appState);
+}
+
+// ── Site blocking ─────────────────────────────────────────────────────────────
+
+browser.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    const { enabled, sites } = appState.blockState;
+    if (!enabled || !sites.length) return {};
+    if (!appState.timer.isRunning || appState.timer.mode !== 'focus') return {};
+
+    let host: string;
+    try { host = new URL(details.url).hostname.replace(/^www\./, ''); }
+    catch { return {}; }
+
+    const blocked = sites.some((s) => host === s || host.endsWith('.' + s));
+    if (!blocked) return {};
+
+    return {
+      redirectUrl:
+        browser.runtime.getURL('blocked/blocked.html') +
+        '?site=' + encodeURIComponent(host),
+    };
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] },
+  ['blocking']
+);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function defaultMemory() {
+  return {
+    preferences:      {} as Record<string, unknown>,
+    recurring_events: [] as Array<{ name: string; pattern: string }>,
+    habits:           [] as string[],
+    task_patterns:    {} as Record<string, unknown>,
+    known_entities:   {} as Record<string, string>,
+  };
+}

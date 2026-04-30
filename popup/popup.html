@@ -9,57 +9,121 @@
 <body>
   <header class="header">
     <span class="brand">Styl</span>
+    <div class="header-actions">
+      <button class="shield-btn" id="shield-btn" title="Block sites during focus">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </button>
+      <button class="settings-link" id="settings-link" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
-  <!-- Mode tabs -->
-  <div class="mode-tabs">
-    <button class="mode-tab active" data-mode="focus">Focus</button>
-    <button class="mode-tab" data-mode="break">Break</button>
-    <button class="mode-tab" data-mode="longBreak">Long Break</button>
-  </div>
+  <!-- AI status bar -->
+  <div class="ai-status hidden" id="ai-status"></div>
 
-  <!-- Timer ring -->
-  <div class="timer-ring-wrap">
-    <svg viewBox="0 0 120 120" class="ring-svg">
-      <circle class="ring-bg" cx="60" cy="60" r="52"/>
-      <circle class="ring-fg" id="progress-ring" cx="60" cy="60" r="52"
-        stroke-dasharray="326.73" stroke-dashoffset="0"/>
-    </svg>
-    <div class="timer-display">
-      <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
-      <div class="time-editor hidden" id="time-editor">
-        <input type="number" id="time-edit" min="1" max="180" placeholder="25">
-        <span class="edit-unit">min</span>
+  <!-- ── Timer view ─────────────────────────────────────────────────────── -->
+  <div id="timer-view">
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="focus">Focus</button>
+      <button class="mode-tab" data-mode="break">Break</button>
+      <button class="mode-tab" data-mode="longBreak">Long Break</button>
+    </div>
+
+    <div class="ring-area">
+      <div class="timer-ring-wrap">
+        <svg viewBox="0 0 120 120" class="ring-svg">
+          <circle class="ring-bg" cx="60" cy="60" r="52"/>
+          <circle class="ring-fg" id="progress-ring" cx="60" cy="60" r="52"
+            stroke-dasharray="326.73" stroke-dashoffset="0"/>
+        </svg>
+        <div class="timer-display">
+          <span class="time-text" id="time-text" title="Click to change duration">25:00</span>
+          <div class="time-editor hidden" id="time-editor">
+            <input type="number" id="time-edit" min="1" max="180" placeholder="25">
+            <span class="edit-unit">min</span>
+          </div>
+        </div>
+      </div>
+      <button class="add-min-btn hidden" id="add-min-btn" title="Add 1 minute">+1 min</button>
+    </div>
+    <div class="preset-bar hidden" id="preset-bar"></div>
+
+    <div class="controls">
+      <button class="ctrl-btn secondary" id="reset-btn" title="Reset">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <polyline points="1 4 1 10 7 10"/>
+          <path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn primary" id="start-pause-btn">Start</button>
+      <button class="ctrl-btn secondary" id="skip-btn" title="Skip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 4 15 12 5 20 5 4"/>
+          <line x1="19" y1="5" x2="19" y2="19"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="sessions-row">
+      <div class="sessions-dots" id="sessions-dots"></div>
+      <span class="sessions-label" id="sessions-label">0 sessions completed</span>
+    </div>
+
+  </div><!-- /timer-view -->
+
+  <!-- ── Block panel ────────────────────────────────────────────────────── -->
+  <div id="block-panel" class="hidden">
+
+    <div class="bp-header">
+      <button class="back-btn" id="block-back-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Timer
+      </button>
+      <span class="bp-title">Block Sites</span>
+    </div>
+
+    <div class="bp-toggle-row">
+      <div>
+        <div class="bp-toggle-label">Block during focus</div>
+        <div class="bp-toggle-sub">Only active while timer is running</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="block-enabled" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+    </div>
+
+    <div class="bp-section">
+      <div class="bp-section-label">Presets</div>
+      <div class="bp-preset-row">
+        <button class="bp-preset" data-preset="social">Social</button>
+        <button class="bp-preset" data-preset="video">Video</button>
+        <button class="bp-preset" data-preset="news">News</button>
       </div>
     </div>
-  </div>
-  <div class="preset-bar hidden" id="preset-bar"></div>
 
-  <!-- Controls -->
-  <div class="controls">
-    <button class="ctrl-btn secondary" id="reset-btn" title="Reset">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-        <polyline points="1 4 1 10 7 10"/>
-        <path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
-      </svg>
-    </button>
-    <button class="ctrl-btn primary" id="start-pause-btn">Start</button>
-    <button class="ctrl-btn secondary" id="skip-btn" title="Skip">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="5 4 15 12 5 20 5 4"/>
-        <line x1="19" y1="5" x2="19" y2="19"/>
-      </svg>
-    </button>
-  </div>
+    <div class="bp-section">
+      <div class="bp-section-label">Blocked Sites</div>
+      <div class="bp-site-list" id="bp-site-list"></div>
+      <div class="bp-add-row">
+        <input class="bp-add-input" id="bp-add-input" type="text"
+               placeholder="e.g. example.com" autocomplete="off" spellcheck="false">
+        <button class="bp-add-btn" id="bp-add-btn">+</button>
+      </div>
+    </div>
 
-  <!-- Sessions -->
-  <div class="sessions-row">
-    <div class="sessions-dots" id="sessions-dots"></div>
-    <span class="sessions-label" id="sessions-label">0 sessions today</span>
-  </div>
+  </div><!-- /block-panel -->
 
-
-<script src="../shared/sound.js"></script>
-  <script src="popup.js"></script>
+  <script src="../shared/sound.js"></script>
+  <script src="../dist/popup.js"></script>
 </body>
 </html>
