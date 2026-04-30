@@ -136,7 +136,8 @@ export type AIActionType =
   | 'reorder_tasks'
   | 'update_memory'
   | 'plan_day'
-  | 'create_calendar_event';
+  | 'create_calendar_event'
+  | 'delete_calendar_event';
 
 export interface AIAction {
   type:    AIActionType;
@@ -172,7 +173,9 @@ export type BgMessage =
   | { type: 'settingsUpdated';     settings: AppSettings }
   | { type: 'setBlockEnabled';     enabled: boolean }
   | { type: 'setBlockedSites';     sites: string[] }
-  | { type: 'gmailScan' };
+  | { type: 'reorderTasks';        ids: string[] }
+  | { type: 'gmailScan' }
+  | { type: 'calendarRefresh' };
 
 export type UiMessage =
   | { type: 'stateUpdate';        state: AppState; event?: string }
@@ -184,4 +187,6 @@ export type UiMessage =
   | { type: 'undoComplete' }
   | { type: 'syncComplete' }
   | { type: 'error';              message: string }
-  | { type: 'gmailMessages';      messages: unknown[] };
+  | { type: 'gmailMessages';      messages: unknown[] }
+  | { type: 'calendarData';       events: CalendarEvent[]; error?: string }
+  | { type: 'aiToolUse';          tool: string; input: Record<string, string> };

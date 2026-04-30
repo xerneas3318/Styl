@@ -23,28 +23,70 @@
       maxlength="120" autocomplete="off" spellcheck="false">
   </div>
 
-  <!-- AI command bar -->
-  <div class="ai-bar">
-    <div class="ai-input-row">
-      <input class="ai-input" id="ai-input" type="text"
-        placeholder="Ask anything… plan my day, add task, mark X done"
-        autocomplete="off" spellcheck="false">
-      <button class="ai-img-btn" id="ai-img-btn" title="Attach screenshot">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21 15 16 10 5 21"/>
-        </svg>
-      </button>
-      <input type="file" id="ai-img" accept="image/*" hidden>
-      <button class="ai-send" id="ai-send" title="Send">→</button>
+  <!-- AI panel -->
+  <div class="ai-panel" id="ai-panel">
+    <div class="ai-panel-hdr">
+      <span class="ai-panel-title">Assistant</span>
+      <div class="ai-panel-hdr-actions">
+        <button class="ai-hdr-btn" id="ai-clear-btn" title="Clear conversation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
+          </svg>
+        </button>
+      </div>
     </div>
-    <div class="ai-response hidden" id="ai-response"></div>
-    <div class="ai-actions hidden" id="ai-actions">
-      <button class="ai-action-btn approve" id="ai-approve-btn">Apply</button>
-      <button class="ai-action-btn reject"  id="ai-reject-btn">Cancel</button>
+
+    <div class="ai-messages" id="ai-messages">
+      <div class="ai-empty" id="ai-empty">
+        <div class="ai-empty-icon">✦</div>
+        <div class="ai-empty-hints">
+          <span>Type <kbd>/</kbd> for commands</span>
+          <span class="ai-hint-sep">·</span>
+          <span>Paste images with <kbd>⌘V</kbd></span>
+        </div>
+      </div>
     </div>
+
+    <div class="ai-panel-footer">
+      <div class="slash-menu hidden" id="slash-menu"></div>
+      <div class="ai-approval hidden" id="ai-actions">
+        <button class="ai-appr-btn approve" id="ai-approve-btn">Apply changes</button>
+        <button class="ai-appr-btn reject"  id="ai-reject-btn">Discard</button>
+      </div>
+      <div class="ai-attachments" id="ai-attachments"></div>
+      <div class="ai-input-row">
+        <textarea class="ai-textarea" id="ai-input" rows="1"
+          placeholder="Ask anything or type / for commands…"
+          autocomplete="off" spellcheck="false"></textarea>
+        <button class="ai-icon-btn" id="ai-img-btn" title="Attach image (or paste ⌘V)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </button>
+        <input type="file" id="ai-img" accept="image/*" hidden>
+        <button class="ai-send-btn" id="ai-send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calendar panel -->
+  <div class="cal-panel hidden" id="cal-panel">
+    <div class="cal-header">
+      <span class="cal-header-date" id="cal-header-date"></span>
+      <div class="cal-view-tabs">
+        <button class="cal-tab active" data-view="day">Day</button>
+        <button class="cal-tab"        data-view="week">Week</button>
+      </div>
+    </div>
+    <div class="cal-body" id="cal-body"></div>
   </div>
 
   <!-- Main grid: timer + tasks -->
@@ -141,6 +183,19 @@
     <div class="diff-card-footer">
       <button class="diff-btn approve" id="diff-approve-btn">Apply</button>
       <button class="diff-btn reject"  id="diff-reject-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group merge dialog -->
+<div class="group-dialog-overlay hidden" id="group-dialog">
+  <div class="group-dialog-card">
+    <div class="group-dialog-title">Add to group</div>
+    <input class="group-dialog-input" id="group-dialog-input"
+      type="text" placeholder="Group name…" autocomplete="off" spellcheck="false">
+    <div class="group-dialog-footer">
+      <button class="group-dialog-btn confirm" id="group-dialog-confirm">Add</button>
+      <button class="group-dialog-btn cancel"  id="group-dialog-cancel">Cancel</button>
     </div>
   </div>
 </div>

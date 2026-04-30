@@ -36,6 +36,27 @@ let isEditing      = false;
 let pendingAIResp: AIResponse | null           = null;
 let pendingPrompt  = '';
 
+// ── Chat state ────────────────────────────────────────────────────────────────
+let promptHistory: string[]   = JSON.parse(localStorage.getItem('styl_history') ?? '[]');
+let historyIdx                = -1;
+let pendingImages: Array<{ data: string; url: string }> = [];
+let slashActive               = -1;
+let thinkingNode: HTMLElement | null = null;
+
+// ── Drag-and-drop state ───────────────────────────────────────────────────────
+let draggedId: string | null = null;
+
+const SLASH_CMDS = [
+  { cmd: '/plan',      desc: 'Reorder tasks by priority & duration',   fill: 'plan my day' },
+  { cmd: '/today',     desc: "What's on my calendar today",            fill: "what's on my calendar today?" },
+  { cmd: '/week',      desc: 'Show this week\'s schedule',            fill: 'what do I have this week?' },
+  { cmd: '/tasks',     desc: 'List all tasks',                        fill: 'list all my tasks' },
+  { cmd: '/remember',  desc: 'Tell the AI to remember something',     fill: '/remember ' },
+  { cmd: '/directive', desc: 'Set a standing instruction for the AI', fill: '/directive ' },
+  { cmd: '/undo',      desc: 'Undo last AI change',                   fill: null },
+  { cmd: '/clear',     desc: 'Clear this conversation',               fill: null },
+];
+
 // ── Connection ────────────────────────────────────────────────────────────────
 
 function connect() {
@@ -46,24 +67,66 @@ function connect() {
         state = msg.state as AppState;
         renderTimer();
         renderTasks();
+        renderCalendar(state.calendarCache ?? []);
         renderAddMinBtn();
         if ((msg as { event?: string }).event === 'timerComplete') playChime();
         break;
-      case 'aiThinking':   showAIThinking();   break;
-      case 'aiComplete':   showAIMsg(msg.message as string, false); clearAIActions(); break;
-      case 'aiPendingApproval':
-        pendingAIResp = msg.response as AIResponse;
-        pendingPrompt = (document.getElementById('ai-input') as HTMLInputElement).value;
-        showAIMsg((msg.response as AIResponse).message, false);
-        showDiff(msg.diff as TaskDiff);
-        showAIActions();
+      case 'aiThinking':
+        showThinking();
         break;
-      case 'aiRejected':   clearAIActions(); showAIMsg('Cancelled.', false); break;
-      case 'undoComplete': showAIMsg('Undone.', false); break;
-      case 'error':        showAIMsg(`⚠ ${msg.message as string}`, true); clearAIActions(); break;
+      case 'aiToolUse': {
+        const toolInput = msg.input as Record<string, string>;
+        const label = msg.tool === 'get_calendar_events'
+          ? `Fetching calendar for ${toolInput.start}–${toolInput.end}…`
+          : `Using tool: ${msg.tool as string}`;
+        appendToolMsg(label);
+        break;
+      }
+      case 'aiComplete':
+        removeThinking();
+        appendAssistantMsg(msg.message as string, false);
+        clearApproval();
+        break;
+      case 'aiPendingApproval':
+        removeThinking();
+        pendingAIResp  = msg.response as AIResponse;
+        pendingPrompt  = '';
+        appendAssistantMsg((msg.response as AIResponse).message, false);
+        showDiff(msg.diff as TaskDiff);
+        showApproval();
+        break;
+      case 'aiRejected':
+        clearApproval();
+        appendAssistantMsg('Cancelled.', false);
+        break;
+      case 'undoComplete':
+        appendAssistantMsg('Done — last change undone.', false);
+        break;
+      case 'error':
+        removeThinking();
+        clearApproval();
+        appendAssistantMsg(`⚠ ${msg.message as string}`, true);
+        break;
+      case 'calendarData': {
+        const events = msg.events as import('../shared/types').CalendarEvent[];
+        const warn   = msg.error as string | undefined;
+        renderCalendar(events, warn);
+        // If triggered by !calendar debug command, complete the thinking bubble
+        if (thinkingNode) {
+          removeThinking();
+          const summary = events.length
+            ? `${events.length} event${events.length !== 1 ? 's' : ''} in the next 14 days.${warn ? '\n⚠ ' + warn : ''}`
+            : warn ? `⚠ ${warn}` : 'No upcoming events found.';
+          appendAssistantMsg(summary, !!warn && !events.length);
+        }
+        break;
+      }
     }
   });
   port.onDisconnect.addListener(() => { port = null; setTimeout(connect, 400); });
+
+  // Refresh calendar cache on connect so the strip is populated immediately
+  port.postMessage({ type: 'calendarRefresh' });
 }
 
 function send(msg: unknown) {
@@ -215,6 +278,17 @@ function buildPresets(mode: TimerMode, current: number) {
 
 // ── Task rendering ────────────────────────────────────────────────────────────
 
+const collapsedGroups = new Set<string>(
+  JSON.parse(localStorage.getItem('styl_collapsed_groups') ?? '[]') as string[]
+);
+
+function toggleGroup(project: string) {
+  if (collapsedGroups.has(project)) collapsedGroups.delete(project);
+  else                              collapsedGroups.add(project);
+  localStorage.setItem('styl_collapsed_groups', JSON.stringify([...collapsedGroups]));
+  renderTasks();
+}
+
 function renderTasks() {
   const tasks = state?.tasks ?? [];
   const list  = document.getElementById('task-list') as HTMLElement;
@@ -228,54 +302,222 @@ function renderTasks() {
     return;
   }
 
-  tasks.forEach((task) => {
-    const item = buildTaskItem(task);
-    list.appendChild(item);
-  });
+  // Split into ungrouped and grouped
+  const groups  = new Map<string, Task[]>();
+  const noGroup: Task[] = [];
+  for (const t of tasks) {
+    if (t.project) {
+      if (!groups.has(t.project)) groups.set(t.project, []);
+      groups.get(t.project)!.push(t);
+    } else {
+      noGroup.push(t);
+    }
+  }
+
+  // Ungrouped tasks first (no header needed)
+  for (const t of noGroup) list.appendChild(buildTaskItem(t));
+
+  // Groups sorted alphabetically
+  for (const [project, gtasks] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const collapsed = collapsedGroups.has(project);
+    const done      = gtasks.filter((t) => t.status === 'done').length;
+
+    const header = document.createElement('div');
+    header.className = 'task-group-header';
+    header.addEventListener('click', () => toggleGroup(project));
+
+    const arrow = document.createElement('span');
+    arrow.className   = 'task-group-arrow';
+    arrow.textContent = collapsed ? '▶' : '▼';
+
+    const label = document.createElement('span');
+    label.className   = 'task-group-label';
+    label.textContent = project;
+
+    const badge = document.createElement('span');
+    badge.className   = 'task-group-badge';
+    badge.textContent = `${done}/${gtasks.length}`;
+
+    header.append(arrow, label, badge);
+    list.appendChild(header);
+
+    if (!collapsed) {
+      for (const t of gtasks) list.appendChild(buildTaskItem(t));
+    }
+  }
 }
 
 function buildTaskItem(task: Task): HTMLElement {
   const row = document.createElement('div');
   row.className = `task-item ${task.status === 'done' ? 'done' : ''}`;
   row.dataset.id = task.id;
+  row.draggable  = true;
 
-  // Priority dot
+  // ── Drag-and-drop ──
+  row.addEventListener('dragstart', (e) => {
+    draggedId = task.id;
+    row.classList.add('dragging');
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', task.id);
+  });
+
+  row.addEventListener('dragend', () => {
+    draggedId = null;
+    row.classList.remove('dragging');
+    clearDragIndicators();
+  });
+
+  row.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (draggedId === task.id) return;
+    e.dataTransfer!.dropEffect = 'move';
+    clearDragIndicators();
+    const rect = row.getBoundingClientRect();
+    const y    = e.clientY - rect.top;
+    const h    = rect.height;
+    if (y < h * 0.33)      row.classList.add('drag-over-top');
+    else if (y > h * 0.67) row.classList.add('drag-over-bottom');
+    else                   row.classList.add('drag-over-center');
+  });
+
+  row.addEventListener('dragleave', (e) => {
+    if (!row.contains(e.relatedTarget as Node)) {
+      row.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+    }
+  });
+
+  row.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (!draggedId || draggedId === task.id) { clearDragIndicators(); return; }
+    const id = draggedId;
+    const isCenter = row.classList.contains('drag-over-center');
+    const isBefore = row.classList.contains('drag-over-top');
+    clearDragIndicators();
+    if (isCenter) showGroupDialog(id, task.id);
+    else          reorderTask(id, task.id, isBefore ? 'before' : 'after');
+  });
+
+  // Priority dot — click to cycle low → medium → high → low
+  const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high'];
   const dot = document.createElement('span');
   dot.className = `task-dot priority-${task.priority}`;
-  dot.title = task.priority;
+  dot.title     = `Priority: ${task.priority} (click to change)`;
+  dot.style.cursor = 'pointer';
+  dot.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const next = PRIORITIES[(PRIORITIES.indexOf(task.priority) + 1) % PRIORITIES.length];
+    send({ type: 'updateTask', task: { ...task, priority: next, updated_at: isoNow() } });
+  });
 
   // Checkbox
   const cb = document.createElement('input');
-  cb.type    = 'checkbox';
-  cb.checked = task.status === 'done';
+  cb.type      = 'checkbox';
+  cb.checked   = task.status === 'done';
   cb.className = 'task-cb';
   cb.addEventListener('change', () => {
-    send({
-      type: 'updateTask',
-      task: { ...task, status: cb.checked ? 'done' : 'todo', updated_at: isoNow() },
-    });
+    send({ type: 'updateTask', task: { ...task, status: cb.checked ? 'done' : 'todo', updated_at: isoNow() } });
   });
 
   // Title
   const title = document.createElement('span');
-  title.className = 'task-title-text';
+  title.className   = 'task-title-text';
   title.textContent = task.title;
   title.addEventListener('click', () => startInlineEdit(task, title));
 
   // Duration badge
   const dur = document.createElement('span');
-  dur.className = 'task-dur';
+  dur.className   = 'task-dur';
   dur.textContent = task.estimated_duration_minutes ? `${task.estimated_duration_minutes}m` : '';
+
+  // Group tag
+  const grp = document.createElement('span');
+  grp.className   = `task-group-tag${task.project ? ' has-group' : ''}`;
+  grp.textContent = task.project ?? '＋';
+  grp.title       = task.project ? `Group: ${task.project} (click to change)` : 'Add to group';
+  grp.addEventListener('click', (e) => { e.stopPropagation(); startGroupEdit(task, grp); });
 
   // Delete
   const del = document.createElement('button');
-  del.className = 'task-del';
+  del.className   = 'task-del';
   del.textContent = '×';
-  del.title = 'Delete';
+  del.title       = 'Delete';
   del.addEventListener('click', () => send({ type: 'deleteTask', id: task.id }));
 
-  row.append(dot, cb, title, dur, del);
+  row.append(dot, cb, title, dur, grp, del);
   return row;
+}
+
+// ── Drag-and-drop helpers ─────────────────────────────────────────────────────
+
+function clearDragIndicators() {
+  document.querySelectorAll('.task-item').forEach((el) => {
+    (el as HTMLElement).classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+  });
+}
+
+function reorderTask(fromId: string, targetId: string, position: 'before' | 'after') {
+  const items = Array.from(document.querySelectorAll<HTMLElement>('.task-item[data-id]'));
+  const ids   = items.map((el) => el.dataset.id!);
+
+  const fromIdx = ids.indexOf(fromId);
+  if (fromIdx === -1) return;
+  ids.splice(fromIdx, 1);                         // remove from current spot
+  const toIdx = ids.indexOf(targetId);
+  if (toIdx === -1) return;
+  ids.splice(position === 'before' ? toIdx : toIdx + 1, 0, fromId); // insert
+  send({ type: 'reorderTasks', ids });
+}
+
+function showGroupDialog(id1: string, id2: string) {
+  const overlay = document.getElementById('group-dialog') as HTMLElement;
+  const input   = document.getElementById('group-dialog-input') as HTMLInputElement;
+
+  const task1 = state?.tasks.find((t) => t.id === id1);
+  const task2 = state?.tasks.find((t) => t.id === id2);
+  input.value = task1?.project ?? task2?.project ?? '';
+  overlay.classList.remove('hidden');
+  input.focus();
+  input.select();
+
+  const commit = (name: string | null) => {
+    overlay.classList.add('hidden');
+    input.onkeydown = null;
+    if (name !== null) {
+      const project = name.trim() || undefined;
+      [task1, task2].forEach((t) => {
+        if (t) send({ type: 'updateTask', task: { ...t, project, updated_at: isoNow() } });
+      });
+    }
+  };
+
+  (document.getElementById('group-dialog-confirm') as HTMLElement).onclick = () => commit(input.value);
+  (document.getElementById('group-dialog-cancel')  as HTMLElement).onclick = () => commit(null);
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); commit(input.value); }
+    if (e.key === 'Escape') commit(null);
+  };
+}
+
+// ── Group edit ────────────────────────────────────────────────────────────────
+
+function startGroupEdit(task: Task, el: HTMLElement) {
+  const input = document.createElement('input');
+  input.className   = 'task-group-edit';
+  input.value       = task.project ?? '';
+  input.placeholder = 'Group…';
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    const project = input.value.trim() || undefined;
+    send({ type: 'updateTask', task: { ...task, project, updated_at: isoNow() } });
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = task.project ?? ''; input.blur(); }
+  });
 }
 
 function startInlineEdit(task: Task, el: HTMLElement) {
@@ -301,29 +543,311 @@ function startInlineEdit(task: Task, el: HTMLElement) {
   });
 }
 
-// ── AI command bar ────────────────────────────────────────────────────────────
+// ── Calendar panel ────────────────────────────────────────────────────────────
 
-function showAIThinking() {
-  const resp = document.getElementById('ai-response') as HTMLElement;
-  resp.textContent = '…';
-  resp.className   = 'ai-response thinking';
-  resp.classList.remove('hidden');
+type CalView = 'day' | 'week';
+let calView:   CalView = 'day';
+let calEvents: import('../shared/types').CalendarEvent[] = [];
+let calWarn:   string | undefined;
+
+function renderCalendar(events: import('../shared/types').CalendarEvent[], warn?: string) {
+  calEvents = events;
+  calWarn   = warn;
+
+  const panel  = document.getElementById('cal-panel') as HTMLElement;
+  const body   = document.getElementById('cal-body')  as HTMLElement;
+  const dateEl = document.getElementById('cal-header-date') as HTMLElement;
+
+  // Keep tab highlight in sync
+  document.querySelectorAll('.cal-tab').forEach((el) => {
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.view === calView);
+  });
+
+  if (!events.length && !warn) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  body.innerHTML = '';
+
+  if (warn) {
+    const warnEl = document.createElement('div');
+    warnEl.className = 'cal-warn';
+    warnEl.textContent = `⚠ ${warn}`;
+    body.appendChild(warnEl);
+  }
+
+  if (calView === 'day') renderDayView(events, body, dateEl);
+  else                   renderWeekView(events, body, dateEl);
 }
 
-function showAIMsg(msg: string, isError: boolean) {
-  const resp = document.getElementById('ai-response') as HTMLElement;
-  resp.textContent = msg;
-  resp.className   = `ai-response ${isError ? 'error' : ''}`;
-  resp.classList.remove('hidden');
+function calStartDt(e: import('../shared/types').CalendarEvent): Date {
+  if (!e.start.includes('T')) {
+    const [y, m, d] = e.start.split('-').map(Number);
+    return new Date(y, m - 1, d, 12);
+  }
+  return new Date(e.start);
 }
 
-function showAIActions() {
+function calTimeLabel(e: import('../shared/types').CalendarEvent, startDt: Date): string {
+  return !e.start.includes('T')
+    ? 'All day'
+    : startDt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function calEventRow(timeText: string, titleText: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'cal-event-row';
+  const timeEl = document.createElement('span');
+  timeEl.className   = 'cal-event-time';
+  timeEl.textContent = timeText;
+  const titleEl = document.createElement('span');
+  titleEl.className   = 'cal-event-title';
+  titleEl.textContent = titleText;
+  titleEl.title       = titleText;
+  row.append(timeEl, titleEl);
+  return row;
+}
+
+function renderDayView(
+  events:  import('../shared/types').CalendarEvent[],
+  body:    HTMLElement,
+  dateEl:  HTMLElement,
+) {
+  const now      = new Date();
+  const todayKey = ymd(now);
+
+  dateEl.textContent = now.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+
+  const todayEvents = events.filter((e) => ymd(calStartDt(e)) === todayKey);
+
+  if (!todayEvents.length) {
+    const empty = document.createElement('div');
+    empty.className   = 'cal-empty';
+    empty.textContent = 'Nothing scheduled for today';
+    body.appendChild(empty);
+    return;
+  }
+
+  for (const e of todayEvents) {
+    const dt = calStartDt(e);
+    body.appendChild(calEventRow(calTimeLabel(e, dt), e.title));
+  }
+}
+
+function renderWeekView(
+  events:  import('../shared/types').CalendarEvent[],
+  body:    HTMLElement,
+  dateEl:  HTMLElement,
+) {
+  const now = new Date();
+
+  // Build a map for the next 7 days
+  type DaySlot = { label: string; isToday: boolean; rows: import('../shared/types').CalendarEvent[] };
+  const slots = new Map<string, DaySlot>();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now); d.setDate(now.getDate() + i);
+    const key   = ymd(d);
+    const label = i === 0 ? 'Today'
+      : i === 1 ? 'Tomorrow'
+      : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    slots.set(key, { label, isToday: i === 0, rows: [] });
+  }
+
+  for (const e of events) {
+    const key = ymd(calStartDt(e));
+    slots.get(key)?.rows.push(e);
+  }
+
+  // Date range label in header
+  const last = new Date(now); last.setDate(now.getDate() + 6);
+  dateEl.textContent =
+    `${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ` +
+    last.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  let hasAny = false;
+  for (const [, slot] of slots) {
+    if (!slot.rows.length) continue;
+    hasAny = true;
+
+    const group = document.createElement('div');
+    group.className = 'cal-day-group';
+
+    const label = document.createElement('div');
+    label.className   = `cal-day-label${slot.isToday ? ' today-label' : ''}`;
+    label.textContent = slot.label;
+    group.appendChild(label);
+
+    for (const e of slot.rows) {
+      const dt = calStartDt(e);
+      group.appendChild(calEventRow(calTimeLabel(e, dt), e.title));
+    }
+
+    body.appendChild(group);
+  }
+
+  if (!hasAny) {
+    const empty = document.createElement('div');
+    empty.className   = 'cal-empty';
+    empty.textContent = 'Nothing scheduled this week';
+    body.appendChild(empty);
+  }
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// ── AI chat system ────────────────────────────────────────────────────────────
+
+function chatMsgs(): HTMLElement { return document.getElementById('ai-messages') as HTMLElement; }
+
+function scrollToBottom() {
+  const el = chatMsgs();
+  el.scrollTop = el.scrollHeight;
+}
+
+function removeEmptyState() {
+  document.getElementById('ai-empty')?.remove();
+}
+
+function appendChatBubble(role: 'user' | 'assistant' | 'tool', text: string, isError = false): HTMLElement {
+  removeEmptyState();
+  const msgs = chatMsgs();
+  const wrap = document.createElement('div');
+  wrap.className = `chat-msg ${role}${isError ? ' error' : ''}`;
+  const bubble = document.createElement('div');
+  bubble.className   = 'chat-bubble';
+  bubble.textContent = text;
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+function appendAssistantMsg(text: string, isError: boolean) {
+  appendChatBubble('assistant', text, isError);
+}
+
+function appendToolMsg(text: string) {
+  appendChatBubble('tool', text);
+}
+
+function showThinking() {
+  if (thinkingNode) return;  // already visible — don't create a second one
+  removeEmptyState();
+  const msgs = chatMsgs();
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg assistant';
+  wrap.id        = 'ai-thinking-node';
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-thinking';
+  bubble.innerHTML =
+    '<span>Thinking</span>' +
+    '<div class="thinking-dots">' +
+    '<div class="thinking-dot"></div>' +
+    '<div class="thinking-dot"></div>' +
+    '<div class="thinking-dot"></div>' +
+    '</div>';
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  scrollToBottom();
+  thinkingNode = wrap;
+}
+
+function removeThinking() {
+  thinkingNode?.remove();
+  thinkingNode = null;
+}
+
+function showApproval() {
   (document.getElementById('ai-actions') as HTMLElement).classList.remove('hidden');
 }
 
-function clearAIActions() {
+function clearApproval() {
   (document.getElementById('ai-actions') as HTMLElement).classList.add('hidden');
   pendingAIResp = null;
+}
+
+function clearConversation() {
+  const msgs = chatMsgs();
+  msgs.innerHTML = '';
+  // Re-insert empty state
+  const empty = document.createElement('div');
+  empty.className = 'ai-empty';
+  empty.id        = 'ai-empty';
+  empty.innerHTML =
+    '<div class="ai-empty-icon">✦</div>' +
+    '<div class="ai-empty-hints">' +
+    '<span>Type <kbd>/</kbd> for commands</span>' +
+    '<span class="ai-hint-sep">·</span>' +
+    '<span>Paste images with <kbd>⌘V</kbd></span>' +
+    '</div>';
+  msgs.appendChild(empty);
+  thinkingNode  = null;
+  pendingAIResp = null;
+  clearApproval();
+}
+
+// ── Slash command menu ────────────────────────────────────────────────────────
+
+function updateSlashMenu(value: string) {
+  const menu     = document.getElementById('slash-menu') as HTMLElement;
+  const textarea = document.getElementById('ai-input')   as HTMLTextAreaElement;
+
+  if (!value.startsWith('/')) {
+    menu.classList.add('hidden');
+    slashActive = -1;
+    return;
+  }
+
+  const q       = value.toLowerCase();
+  const matches = SLASH_CMDS.filter((c) => c.cmd.startsWith(q));
+
+  if (!matches.length) { menu.classList.add('hidden'); slashActive = -1; return; }
+
+  menu.classList.remove('hidden');
+  menu.innerHTML = '';
+  if (slashActive >= matches.length) slashActive = 0;
+
+  matches.forEach((cmd, i) => {
+    const item = document.createElement('div');
+    item.className = `slash-item${i === slashActive ? ' active' : ''}`;
+
+    const cmdEl = document.createElement('span');
+    cmdEl.className   = 'slash-cmd';
+    cmdEl.textContent = cmd.cmd;
+
+    const descEl = document.createElement('span');
+    descEl.className   = 'slash-desc';
+    descEl.textContent = cmd.desc;
+
+    item.append(cmdEl, descEl);
+    item.addEventListener('mousedown', (e) => { e.preventDefault(); selectSlashCmd(cmd, textarea); });
+    menu.appendChild(item);
+  });
+}
+
+function selectSlashCmd(cmd: typeof SLASH_CMDS[0], textarea: HTMLTextAreaElement) {
+  const menu = document.getElementById('slash-menu') as HTMLElement;
+  menu.classList.add('hidden');
+  slashActive = -1;
+
+  if (cmd.fill === null) {
+    // Immediate actions
+    if (cmd.cmd === '/clear') { clearConversation(); textarea.value = ''; return; }
+    if (cmd.cmd === '/undo')  { send({ type: 'undoLast' }); textarea.value = ''; return; }
+    return;
+  }
+
+  textarea.value = cmd.fill;
+  textarea.focus();
+  resizeTextarea(textarea);
+
+  // If fill ends with space, cursor goes to end (user completes the prompt)
+  // Otherwise dispatch immediately
+  if (!cmd.fill.endsWith(' ')) {
+    dispatchAI(textarea);
+  }
 }
 
 function showDiff(diff: TaskDiff) {
@@ -476,64 +1000,114 @@ function wireEvents() {
   document.getElementById('skip-btn')!.addEventListener('click',  () => send({ type: 'timerSkip' }));
   document.getElementById('add-min-btn')!.addEventListener('click', () => send({ type: 'timerAddMinute' }));
 
+  // Calendar view tabs
+  document.querySelectorAll('.cal-tab').forEach((el) => {
+    el.addEventListener('click', () => {
+      calView = (el as HTMLElement).dataset.view as CalView;
+      renderCalendar(calEvents, calWarn);
+    });
+  });
+
   // Focus input
   const focusInput = document.getElementById('focus-input') as HTMLInputElement;
   focusInput.addEventListener('input', () =>
     localStorage.setItem('styl_focus_text', focusInput.value)
   );
 
-  // AI bar
-  const aiInput  = document.getElementById('ai-input') as HTMLInputElement;
-  const aiSend   = document.getElementById('ai-send') as HTMLButtonElement;
-  const aiImgIn  = document.getElementById('ai-img') as HTMLInputElement;
-  const aiImgBtn = document.getElementById('ai-img-btn') as HTMLButtonElement;
+  // AI panel
+  const aiTextarea = document.getElementById('ai-input')   as HTMLTextAreaElement;
+  const aiSend     = document.getElementById('ai-send')    as HTMLButtonElement;
+  const aiImgIn    = document.getElementById('ai-img')     as HTMLInputElement;
+  const aiImgBtn   = document.getElementById('ai-img-btn') as HTMLButtonElement;
+  const aiClearBtn = document.getElementById('ai-clear-btn') as HTMLButtonElement;
 
-  const dispatchAI = () => {
-    const prompt = aiInput.value.trim();
-    if (!prompt) return;
-    clearAIActions();
-    (document.getElementById('ai-response') as HTMLElement).classList.add('hidden');
-    send({ type: 'aiCommand', prompt });
-    aiInput.value = '';
-    pendingPrompt = prompt;
-  };
-
-  aiSend.addEventListener('click', dispatchAI);
-  aiInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dispatchAI(); }
+  aiTextarea.addEventListener('input', () => {
+    resizeTextarea(aiTextarea);
+    updateSlashMenu(aiTextarea.value);
   });
+
+  aiTextarea.addEventListener('keydown', (e) => {
+    const menu = document.getElementById('slash-menu') as HTMLElement;
+    const menuVisible = !menu.classList.contains('hidden');
+    const q    = aiTextarea.value.toLowerCase();
+    const matches = SLASH_CMDS.filter((c) => c.cmd.startsWith(q));
+
+    if (menuVisible) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); slashActive = (slashActive + 1) % matches.length; updateSlashMenu(aiTextarea.value); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); slashActive = (slashActive - 1 + matches.length) % matches.length; updateSlashMenu(aiTextarea.value); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const chosen = matches[slashActive >= 0 ? slashActive : 0];
+        if (chosen) selectSlashCmd(chosen, aiTextarea);
+        return;
+      }
+      if (e.key === 'Escape') { menu.classList.add('hidden'); slashActive = -1; return; }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dispatchAI(aiTextarea); return; }
+
+    // Up/Down arrow to cycle through prompt history when input is empty
+    if (e.key === 'ArrowUp' && aiTextarea.value === '') {
+      e.preventDefault();
+      if (historyIdx < promptHistory.length - 1) {
+        historyIdx++;
+        aiTextarea.value = promptHistory[historyIdx];
+        resizeTextarea(aiTextarea);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIdx >= 0) {
+      e.preventDefault();
+      historyIdx--;
+      aiTextarea.value = historyIdx >= 0 ? promptHistory[historyIdx] : '';
+      resizeTextarea(aiTextarea);
+      return;
+    }
+  });
+
+  // Paste image from clipboard (⌘V / Ctrl+V)
+  aiTextarea.addEventListener('paste', async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) await attachImage(file);
+        break;
+      }
+    }
+  });
+
+  aiSend.addEventListener('click', () => dispatchAI(aiTextarea));
+  aiClearBtn.addEventListener('click', clearConversation);
+
   aiImgBtn.addEventListener('click', () => aiImgIn.click());
   aiImgIn.addEventListener('change', async () => {
     const file = aiImgIn.files?.[0];
     if (!file) return;
     aiImgIn.value = '';
-    const prompt = aiInput.value.trim() || 'Extract tasks from this screenshot';
-    const imageData = await fileToBase64(file);
-    clearAIActions();
-    showAIThinking();
-    send({ type: 'aiCommand', prompt, imageData });
-    aiInput.value = '';
-    pendingPrompt = prompt;
+    await attachImage(file);
   });
 
   // AI approve / reject
   document.getElementById('ai-approve-btn')!.addEventListener('click', () => {
     if (!pendingAIResp) return;
     send({ type: 'aiApprove', response: pendingAIResp, prompt: pendingPrompt });
-    hideDiff(); clearAIActions();
+    hideDiff(); clearApproval();
   });
   document.getElementById('ai-reject-btn')!.addEventListener('click', () => {
     send({ type: 'aiReject' });
-    hideDiff(); clearAIActions();
+    hideDiff(); clearApproval();
   });
   document.getElementById('diff-approve-btn')!.addEventListener('click', () => {
     if (!pendingAIResp) return;
     send({ type: 'aiApprove', response: pendingAIResp, prompt: pendingPrompt });
-    hideDiff(); clearAIActions();
+    hideDiff(); clearApproval();
   });
   document.getElementById('diff-reject-btn')!.addEventListener('click', () => {
     send({ type: 'aiReject' });
-    hideDiff(); clearAIActions();
+    hideDiff(); clearApproval();
   });
 
   // Undo
@@ -566,6 +1140,13 @@ function wireEvents() {
     browser.runtime.getURL && window.open(browser.runtime.getURL('settings/settings.html'));
   });
 
+  // Group dialog — dismiss on overlay click
+  document.getElementById('group-dialog')!.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      (e.currentTarget as HTMLElement).classList.add('hidden');
+    }
+  });
+
   // Wallpaper
   const wpFile = document.getElementById('wallpaper-file') as HTMLInputElement;
   document.getElementById('wallpaper-upload-btn')!.addEventListener('click', () => wpFile.click());
@@ -577,6 +1158,76 @@ function wireEvents() {
     applyBlob(file);
   });
   document.getElementById('wallpaper-remove-btn')!.addEventListener('click', removeWallpaper);
+}
+
+// ── AI dispatch helpers ───────────────────────────────────────────────────────
+
+function resizeTextarea(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
+}
+
+async function attachImage(file: File) {
+  const data      = await fileToBase64(file);
+  const url       = URL.createObjectURL(file);
+  pendingImages.push({ data, url });
+
+  const strip = document.getElementById('ai-attachments') as HTMLElement;
+  const thumb = document.createElement('div');
+  thumb.className = 'ai-thumb';
+  const img = document.createElement('img');
+  img.src = url;
+  const rm = document.createElement('button');
+  rm.className   = 'ai-thumb-rm';
+  rm.textContent = '×';
+  rm.addEventListener('click', () => {
+    pendingImages = pendingImages.filter((p) => p.url !== url);
+    URL.revokeObjectURL(url);
+    thumb.remove();
+  });
+  thumb.append(img, rm);
+  strip.appendChild(thumb);
+}
+
+function dispatchAI(textarea: HTMLTextAreaElement) {
+  const raw    = textarea.value.trim();
+  const prompt = raw.replace(/^\/\w+\s*/, (m) => {
+    // Handle /remember and /directive by keeping their content
+    if (raw.startsWith('/remember '))  return 'Please remember this: ';
+    if (raw.startsWith('/directive ')) return 'Follow this instruction going forward: ';
+    return m;  // other slash commands were handled by selectSlashCmd
+  });
+  if (!prompt) return;
+
+  document.getElementById('slash-menu')!.classList.add('hidden');
+
+  // Save to history (deduplicated, cap at 50)
+  promptHistory = [raw, ...promptHistory.filter((h) => h !== raw)].slice(0, 50);
+  localStorage.setItem('styl_history', JSON.stringify(promptHistory));
+  historyIdx = -1;
+
+  appendChatBubble('user', raw);
+  clearApproval();
+  textarea.value = '';
+  resizeTextarea(textarea);
+
+  // Revoke object URLs and clear attachment strip after grabbing data
+  const images = [...pendingImages];
+  for (const p of images) URL.revokeObjectURL(p.url);
+  pendingImages = [];
+  (document.getElementById('ai-attachments') as HTMLElement).innerHTML = '';
+
+  // !calendar debug shortcut
+  if (raw === '!calendar') {
+    showThinking();
+    send({ type: 'calendarRefresh' });
+    return;
+  }
+
+  showThinking();
+  const imageData = images[0]?.data;
+  send({ type: 'aiCommand', prompt, ...(imageData ? { imageData } : {}) });
+  pendingPrompt = prompt;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

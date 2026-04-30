@@ -10,6 +10,7 @@ import {
 } from './timer';
 import { GitHubClient }                      from './github';
 import { AIClient, applyActions }            from './ai';
+import type { CalendarFetcher }              from './ai';
 import { commitChange, computeDiff, createSnapshot } from './version-control';
 import { GmailClient }                       from './gmail';
 import { CalendarClient }                    from './calendar';
@@ -71,7 +72,20 @@ const ports = new Set<browser.runtime.Port>();
   if (settings.github && !savedState) {
     syncFromGitHub().catch((e) => console.warn('[styl] boot sync:', e));
   }
+
+  // Populate calendar cache on boot so the newtab strip is ready immediately
+  refreshCalendarCache().catch(() => {});
 })();
+
+async function refreshCalendarCache(): Promise<{ warning?: string }> {
+  const token = await ensureGoogleToken();
+  if (!token) return {};
+  const { events, warning } = await new CalendarClient(token).getUpcomingEvents(14);
+  appState.calendarCache = events;
+  await persistState();
+  broadcast({ type: 'calendarData', events, error: warning });
+  return { warning };
+}
 
 // ── Alarms ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +214,14 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
       break;
     }
 
+    case 'reorderTasks': {
+      const idMap = new Map(appState.tasks.map((t) => [t.id, t]));
+      appState.tasks = msg.ids.filter((id) => idMap.has(id)).map((id) => idMap.get(id)!);
+      await persistState(); broadcastState();
+      githubSync((gh) => gh.writeTasks(appState.tasks, 'task: reorder'));
+      break;
+    }
+
     // ── AI ───────────────────────────────────────────────────────────────────
 
     case 'aiCommand': {
@@ -209,19 +231,29 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
       }
       port.postMessage({ type: 'aiThinking' });
       try {
-        // Refresh calendar cache so the AI has up-to-date events
+        // Refresh the 14-day cache so the AI has up-to-date near-future events
         const calToken = await ensureGoogleToken();
         if (calToken) {
           try {
-            appState.calendarCache = await new CalendarClient(calToken).getTodayEvents();
-          } catch (e) {
-            console.warn('[styl] calendar refresh:', e);
-          }
+            const { events } = await new CalendarClient(calToken).getUpcomingEvents(14);
+            appState.calendarCache = events;
+          } catch { /* keep last known good data */ }
         }
+
+        // Live fetcher passed to the AI as a tool — lets it query any date range on demand
+        const fetchCalendar: CalendarFetcher | undefined = settings.google
+          ? async (start, end) => {
+              port.postMessage({ type: 'aiToolUse', tool: 'get_calendar_events', input: { start, end } });
+              const tok = await ensureGoogleToken();
+              if (!tok) return [];
+              return new CalendarClient(tok).getEventsForRange(start, end);
+            }
+          : undefined;
 
         const ai  = new AIClient(settings.ai);
         const res = await ai.sendCommand(
-          msg.prompt, appState.tasks, appState.memory, appState.calendarCache, msg.imageData
+          msg.prompt, appState.tasks, appState.memory, appState.calendarCache,
+          msg.imageData, fetchCalendar,
         );
 
         // Only hold for approval when deleting tasks and auto-approve is off.
@@ -333,6 +365,20 @@ async function handleMessage(msg: BgMessage, port: browser.runtime.Port): Promis
       }
       break;
     }
+
+    // ── Calendar ──────────────────────────────────────────────────────────────
+
+    case 'calendarRefresh': {
+      const token = await ensureGoogleToken();
+      if (!token) {
+        port.postMessage({ type: 'calendarData', events: [], error: 'Google not connected.' });
+        break;
+      }
+      // refreshCalendarCache() already broadcasts calendarData to all ports (including this one)
+      try   { await refreshCalendarCache(); }
+      catch (e) { port.postMessage({ type: 'calendarData', events: appState.calendarCache, error: (e as Error).message }); }
+      break;
+    }
   }
 }
 
@@ -344,7 +390,7 @@ async function doApplyAI(
   port:     browser.runtime.Port,
 ): Promise<void> {
   const before = clone(appState.tasks);
-  const { tasks, memory, calendarRequests } = applyActions(
+  const { tasks, memory, calendarRequests, calendarDeleteRequests } = applyActions(
     appState.tasks, appState.memory, response.actions
   );
   appState.tasks  = tasks;
@@ -353,14 +399,22 @@ async function doApplyAI(
   broadcastState();
 
   let calendarNote = '';
-  if (calendarRequests.length) {
+  if (calendarRequests.length || calendarDeleteRequests.length) {
     const tok = await ensureGoogleToken();
     if (!tok) {
-      calendarNote = '\n\n⚠ Google Calendar not connected — event not saved. Connect it in Settings.';
+      calendarNote = '\n\n⚠ Google Calendar not connected — calendar change not saved. Connect it in Settings.';
     } else {
       try {
         const cal = new CalendarClient(tok);
-        await Promise.all(calendarRequests.map((r) => cal.createEvent(r)));
+        await Promise.all([
+          ...calendarRequests.map((r) => cal.createEvent(r)),
+          ...calendarDeleteRequests.map((id) => cal.deleteEvent(id)),
+        ]);
+        // Refresh cache and push updated events to all open newtab pages
+        const { events: refreshed } = await cal.getUpcomingEvents(14);
+        appState.calendarCache = refreshed;
+        await persistState();
+        broadcast({ type: 'calendarData', events: refreshed });
       } catch (e) {
         calendarNote = `\n\n⚠ Calendar error: ${(e as Error).message}`;
       }

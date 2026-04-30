@@ -302,12 +302,49 @@
   };
 
   // src/background/ai.ts
-  var SYSTEM_PROMPT = `You are a deterministic personal planning assistant embedded in a browser extension.
-You manage tasks, memory, and calendar. Return ONLY valid JSON \u2014 no markdown, no prose wrappers.
+  var ANTHROPIC_CAL_TOOL = {
+    name: "get_calendar_events",
+    description: "Fetch the user's Google Calendar events for a date range. Use this for any date more than 14 days from today, or when the pre-fetched context does not contain the requested date.",
+    input_schema: {
+      type: "object",
+      properties: {
+        start_date: { type: "string", description: "Start date YYYY-MM-DD (inclusive)" },
+        end_date: { type: "string", description: "End date YYYY-MM-DD (inclusive)" }
+      },
+      required: ["start_date", "end_date"]
+    }
+  };
+  var OPENAI_CAL_TOOL = {
+    type: "function",
+    function: {
+      name: "get_calendar_events",
+      description: "Fetch the user's Google Calendar events for a date range. Use this for any date more than 14 days from today, or when the pre-fetched context does not contain the requested date.",
+      parameters: {
+        type: "object",
+        properties: {
+          start_date: { type: "string", description: "Start date YYYY-MM-DD (inclusive)" },
+          end_date: { type: "string", description: "End date YYYY-MM-DD (inclusive)" }
+        },
+        required: ["start_date", "end_date"]
+      }
+    }
+  };
+  function buildSystemPrompt() {
+    const now = /* @__PURE__ */ new Date();
+    const dateStr = now.toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
+    const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    return `You are a personal planning assistant embedded in a browser extension.
+Today is ${dateStr}, ${timeStr}.
+You manage tasks, memory, and calendar events. Return ONLY valid JSON \u2014 no markdown, no prose wrappers.
 
 EXACT output schema \u2014 follow this precisely:
 {
-  "message": "1-2 line confirmation (terse)",
+  "message": "Your reply to the user. For action confirmations be brief. For information queries (listing events, listing tasks, answering questions) write the FULL answer \u2014 include all event titles, times, and dates. Do NOT truncate or summarise.",
   "actions": [
     { "type": "<action_type>", "payload": { ...fields } }
   ],
@@ -325,6 +362,7 @@ Action types and payload fields:
   plan_day              payload: { orderedTasks: [{ id, estimated_duration_minutes? }] }
   update_memory         payload: { path: "dot.key", value: any }
   create_calendar_event payload: { title, start (ISO datetime), end (ISO datetime), description? }
+  delete_calendar_event payload: { id } \u2014 use the event id from the calendar list
 
 Rules:
 - requiresApproval = false always (except explicit bulk deletes \u2014 then set to true)
@@ -332,45 +370,77 @@ Rules:
 - Infer priority from language: "urgent/asap/due today" \u2192 high, "sometime/eventually" \u2192 low
 - "plan my day" \u2192 reorder todo tasks by priority+duration, fill in durations
 - "mark X done" \u2192 update_task with status:"done"
-- Extract tasks from screenshots literally \u2014 preserve exact wording`;
+- Extract tasks from screenshots literally \u2014 preserve exact wording
+
+Calendar rules:
+- The context has pre-fetched events for today + next 14 days only.
+- For ANY date beyond that 14-day window, you MUST call get_calendar_events before answering. Do NOT say "no events" or "not in my data" for future dates \u2014 always fetch first.
+- Pass YYYY-MM-DD start_date/end_date. Widen to cover the full requested period (e.g. full week or month) with one call rather than multiple narrow calls.
+- After receiving tool results, answer from those results literally. Never invent events.
+- For dates within the 14-day window, read from the pre-fetched list. Quote every matching event title and time.
+- When asked about a specific day, calculate the date using "Today is ${dateStr}", then look it up.
+- If the pre-fetched list has zero events for an in-window day, say: "I don't see any events on [date]." \u2014 do NOT just say "No events."`;
+  }
   var AIClient = class {
     constructor(cfg) {
       this.cfg = cfg;
     }
-    async sendCommand(prompt, tasks, memory, calendar, imageData) {
+    async sendCommand(prompt, tasks, memory, calendar, imageData, fetchCalendar) {
       const context = buildContext(tasks, memory, calendar);
-      return this.cfg.provider === "anthropic" ? this.callAnthropic(prompt, context, imageData) : this.callOpenAI(prompt, context, imageData);
+      return this.cfg.provider === "anthropic" ? this.callAnthropic(prompt, context, imageData, fetchCalendar) : this.callOpenAI(prompt, context, imageData, fetchCalendar);
     }
-    async callAnthropic(prompt, context, imageData) {
-      const content = [];
+    async callAnthropic(prompt, context, imageData, fetchCalendar) {
+      const initContent = [];
       if (imageData) {
-        content.push({
+        initContent.push({
           type: "image",
           source: { type: "base64", media_type: "image/png", data: imageData }
         });
       }
-      content.push({ type: "text", text: `${context}
+      initContent.push({ type: "text", text: `${context}
 
 User: ${prompt}` });
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": this.cfg.apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          model: this.cfg.model || "claude-haiku-4-5-20251001",
-          max_tokens: 2048,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content }]
-        })
-      });
-      if (!res.ok) throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`);
-      const data = await res.json();
-      return parseAIResponse(data.content[0].text);
+      const messages = [{ role: "user", content: initContent }];
+      const tools = fetchCalendar ? [ANTHROPIC_CAL_TOOL] : [];
+      for (let turn = 0; turn < 5; turn++) {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": this.cfg.apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: this.cfg.model || "claude-haiku-4-5-20251001",
+            max_tokens: 2048,
+            system: buildSystemPrompt(),
+            messages,
+            ...tools.length ? { tools } : {}
+          })
+        });
+        if (!res.ok) throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        if (data.stop_reason !== "tool_use") {
+          const textBlock = data.content.find((b) => b["type"] === "text");
+          return parseAIResponse(textBlock?.["text"] ?? "");
+        }
+        messages.push({ role: "assistant", content: data.content });
+        const toolResults = [];
+        for (const block of data.content) {
+          if (block["type"] !== "tool_use") continue;
+          const input = block["input"];
+          const events = fetchCalendar ? await fetchCalendar(input.start_date, input.end_date) : [];
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block["id"],
+            content: formatEventsForTool(events, input.start_date, input.end_date)
+          });
+        }
+        messages.push({ role: "user", content: toolResults });
+      }
+      throw new Error("Calendar tool: too many turns without a final response.");
     }
-    async callOpenAI(prompt, context, imageData) {
+    async callOpenAI(prompt, context, imageData, fetchCalendar) {
       const userContent = [];
       if (imageData) {
         userContent.push({
@@ -381,31 +451,51 @@ User: ${prompt}` });
       userContent.push({ type: "text", text: `${context}
 
 User: ${prompt}` });
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.cfg.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: this.cfg.model || "gpt-4o-mini",
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userContent }
-          ],
-          max_tokens: 2048,
-          response_format: { type: "json_object" }
-        })
-      });
-      if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`);
-      const data = await res.json();
-      return parseAIResponse(data.choices[0].message.content);
+      const messages = [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: userContent }
+      ];
+      const tools = fetchCalendar ? [OPENAI_CAL_TOOL] : [];
+      for (let turn = 0; turn < 5; turn++) {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.cfg.apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: this.cfg.model || "gpt-4o-mini",
+            messages,
+            max_tokens: 2048,
+            // response_format:json_object is incompatible with tool use; parseAIResponse handles either
+            ...tools.length ? { tools } : { response_format: { type: "json_object" } }
+          })
+        });
+        if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        const choice = data.choices[0];
+        if (choice.finish_reason !== "tool_calls") {
+          return parseAIResponse(choice.message.content ?? "");
+        }
+        messages.push(choice.message);
+        for (const tc of choice.message.tool_calls ?? []) {
+          const args = JSON.parse(tc.function.arguments);
+          const events = fetchCalendar ? await fetchCalendar(args.start_date, args.end_date) : [];
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: formatEventsForTool(events, args.start_date, args.end_date)
+          });
+        }
+      }
+      throw new Error("Calendar tool: too many turns without a final response.");
     }
   };
   function applyActions(tasks, memory, actions) {
     let newTasks = [...tasks];
     const newMem = JSON.parse(JSON.stringify(memory));
     const calReqs = [];
+    const calDels = [];
     for (const rawAction of actions) {
       if (!rawAction.type) continue;
       const action = {
@@ -471,19 +561,58 @@ User: ${prompt}` });
           calReqs.push(action.payload ?? action);
           break;
         }
+        case "delete_calendar_event": {
+          const { id } = action.payload ?? action;
+          if (id) calDels.push(id);
+          break;
+        }
       }
     }
-    return { tasks: newTasks, memory: newMem, calendarRequests: calReqs };
+    return { tasks: newTasks, memory: newMem, calendarRequests: calReqs, calendarDeleteRequests: calDels };
   }
   function buildContext(tasks, memory, calendar) {
+    const now = /* @__PURE__ */ new Date();
+    const todayStr2 = dateKey(now);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const tomorrowStr = dateKey(tomorrow);
+    const calLines = calendar.length === 0 ? "(no events in the next 14 days)" : calendar.map((e) => {
+      const isAllDay = !e.start.includes("T");
+      const startDt = isAllDay ? localNoon(e.start) : new Date(e.start);
+      const endDt = isAllDay ? localNoon(e.end) : new Date(e.end);
+      const dayLabel = startDt.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+      const timeLabel = isAllDay ? "all day" : `${startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} \u2013 ${endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+      const desc = e.description ? ` | ${e.description.slice(0, 80)}` : "";
+      const key = dateKey(startDt);
+      const rel = key === todayStr2 ? " [TODAY]" : key === tomorrowStr ? " [TOMORROW]" : "";
+      return `\u2022 ${dayLabel}${rel} ${timeLabel}: ${e.title}${desc}`;
+    }).join("\n");
     return [
       `Tasks (${tasks.length}):
 ${JSON.stringify(tasks, null, 2)}`,
       `Memory:
 ${JSON.stringify(memory, null, 2)}`,
-      `Today's calendar (${calendar.length} events):
-${JSON.stringify(calendar, null, 2)}`
+      `Upcoming calendar events (today + next 14 days only \u2014 use get_calendar_events tool for anything beyond, ${calendar.length} total):
+${calLines}`
     ].join("\n\n");
+  }
+  function formatEventsForTool(events, startDate, endDate) {
+    if (!events.length) {
+      return `No events found between ${startDate} and ${endDate}.`;
+    }
+    return events.map((e) => {
+      const isAllDay = !e.start.includes("T");
+      const startDt = isAllDay ? localNoon(e.start) : new Date(e.start);
+      const endDt = isAllDay ? localNoon(e.end) : new Date(e.end);
+      const dayLabel = startDt.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      });
+      const timeLabel = isAllDay ? "all day" : `${startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} \u2013 ` + endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return `\u2022 ${dayLabel} ${timeLabel}: ${e.title}`;
+    }).join("\n");
   }
   function parseAIResponse(raw) {
     const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
@@ -497,6 +626,13 @@ ${JSON.stringify(calendar, null, 2)}`
     } catch {
       return { message: raw.slice(0, 200), actions: [], requiresApproval: false };
     }
+  }
+  function dateKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function localNoon(dateStr) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0);
   }
   function setNested(obj, path, value) {
     const parts = path.split(".");
@@ -594,30 +730,97 @@ ${JSON.stringify(calendar, null, 2)}`
     get auth() {
       return { Authorization: `Bearer ${this.accessToken}` };
     }
-    async getTodayEvents() {
+    // ── Shared fetching core ───────────────────────────────────────────────────
+    async fetchAcrossAllCalendars(params) {
+      const calendarIds = /* @__PURE__ */ new Set(["primary"]);
+      let warning;
+      try {
+        const listRes = await fetch(
+          "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+          { headers: this.auth }
+        );
+        if (listRes.ok) {
+          const list = await listRes.json();
+          for (const c of list.items ?? []) calendarIds.add(c.id);
+        } else {
+          const body = await listRes.text().catch(() => "");
+          warning = `Could not load calendar list (${listRes.status}). ` + (listRes.status === 401 || listRes.status === 403 ? "Try disconnecting and reconnecting Google in Settings." : body.slice(0, 120));
+        }
+      } catch (e) {
+        warning = `Calendar list fetch failed: ${e.message}`;
+      }
+      const fetches = [...calendarIds].map(
+        (calId) => fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${params}`,
+          { headers: this.auth }
+        ).then(async (res) => {
+          if (!res.ok) return [];
+          const data = await res.json();
+          return (data.items ?? []).map((e) => ({
+            id: e.id,
+            title: e.summary ?? "(no title)",
+            start: e.start.dateTime ?? e.start.date ?? "",
+            end: e.end.dateTime ?? e.end.date ?? "",
+            description: e.description
+          }));
+        }).catch(() => [])
+      );
+      const batches = await Promise.all(fetches);
+      const seen = /* @__PURE__ */ new Set();
+      const all = [];
+      for (const batch of batches) {
+        for (const e of batch) {
+          if (e.id && !seen.has(e.id)) {
+            seen.add(e.id);
+            all.push(e);
+          }
+        }
+      }
+      all.sort((a, b) => a.start < b.start ? -1 : 1);
+      return { events: all, warning };
+    }
+    // ── Public API ─────────────────────────────────────────────────────────────
+    /**
+     * Fetch events across ALL calendars for the next `daysAhead` days.
+     * Returns { events, warning } — warning is set if calendarList failed.
+     */
+    async getUpcomingEvents(daysAhead = 14) {
       const start = /* @__PURE__ */ new Date();
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
-      end.setDate(start.getDate() + 1);
-      const params = new URLSearchParams({
+      end.setDate(start.getDate() + daysAhead);
+      return this.fetchAcrossAllCalendars(new URLSearchParams({
         timeMin: start.toISOString(),
         timeMax: end.toISOString(),
         singleEvents: "true",
-        orderBy: "startTime"
-      });
-      const res = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-        { headers: this.auth }
-      );
-      if (!res.ok) throw new Error(`Calendar list error ${res.status}`);
-      const data = await res.json();
-      return (data.items ?? []).map((e) => ({
-        id: e.id,
-        title: e.summary ?? "(no title)",
-        start: e.start.dateTime ?? e.start.date ?? "",
-        end: e.end.dateTime ?? e.end.date ?? "",
-        description: e.description
+        orderBy: "startTime",
+        maxResults: "250"
       }));
+    }
+    /**
+     * Fetch events across ALL calendars for an arbitrary YYYY-MM-DD range.
+     * Used by the AI tool to look up events beyond the 14-day cache.
+     */
+    async getEventsForRange(startDate, endDate) {
+      const start = /* @__PURE__ */ new Date(`${startDate}T00:00:00`);
+      const end = /* @__PURE__ */ new Date(`${endDate}T23:59:59`);
+      const { events } = await this.fetchAcrossAllCalendars(new URLSearchParams({
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "250"
+      }));
+      return events;
+    }
+    async deleteEvent(eventId) {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+        { method: "DELETE", headers: this.auth }
+      );
+      if (!res.ok && res.status !== 410) {
+        throw new Error(`Calendar delete error ${res.status}: ${await res.text()}`);
+      }
     }
     async createEvent(event) {
       const res = await fetch(
@@ -628,12 +831,12 @@ ${JSON.stringify(calendar, null, 2)}`
           body: JSON.stringify({
             summary: event.title,
             description: event.description,
-            start: { dateTime: event.start },
-            end: { dateTime: event.end }
+            start: { dateTime: event.start, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+            end: { dateTime: event.end, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
           })
         }
       );
-      if (!res.ok) throw new Error(`Calendar create error ${res.status}`);
+      if (!res.ok) throw new Error(`Calendar create error ${res.status}: ${await res.text()}`);
     }
   };
 
@@ -678,7 +881,18 @@ ${JSON.stringify(calendar, null, 2)}`
     if (settings.github && !savedState) {
       syncFromGitHub().catch((e) => console.warn("[styl] boot sync:", e));
     }
+    refreshCalendarCache().catch(() => {
+    });
   })();
+  async function refreshCalendarCache() {
+    const token = await ensureGoogleToken();
+    if (!token) return {};
+    const { events, warning } = await new CalendarClient(token).getUpcomingEvents(14);
+    appState.calendarCache = events;
+    await persistState();
+    broadcast({ type: "calendarData", events, error: warning });
+    return { warning };
+  }
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_COMPLETE) {
       const { state, prevMode } = onTimerComplete(appState.timer);
@@ -793,6 +1007,14 @@ ${JSON.stringify(calendar, null, 2)}`
         githubSync((gh) => gh.writeTasks(appState.tasks, `task: delete ${msg.id}`));
         break;
       }
+      case "reorderTasks": {
+        const idMap = new Map(appState.tasks.map((t) => [t.id, t]));
+        appState.tasks = msg.ids.filter((id) => idMap.has(id)).map((id) => idMap.get(id));
+        await persistState();
+        broadcastState();
+        githubSync((gh) => gh.writeTasks(appState.tasks, "task: reorder"));
+        break;
+      }
       // ── AI ───────────────────────────────────────────────────────────────────
       case "aiCommand": {
         if (!settings.ai) {
@@ -804,18 +1026,25 @@ ${JSON.stringify(calendar, null, 2)}`
           const calToken = await ensureGoogleToken();
           if (calToken) {
             try {
-              appState.calendarCache = await new CalendarClient(calToken).getTodayEvents();
-            } catch (e) {
-              console.warn("[styl] calendar refresh:", e);
+              const { events } = await new CalendarClient(calToken).getUpcomingEvents(14);
+              appState.calendarCache = events;
+            } catch {
             }
           }
+          const fetchCalendar = settings.google ? async (start, end) => {
+            port.postMessage({ type: "aiToolUse", tool: "get_calendar_events", input: { start, end } });
+            const tok = await ensureGoogleToken();
+            if (!tok) return [];
+            return new CalendarClient(tok).getEventsForRange(start, end);
+          } : void 0;
           const ai = new AIClient(settings.ai);
           const res = await ai.sendCommand(
             msg.prompt,
             appState.tasks,
             appState.memory,
             appState.calendarCache,
-            msg.imageData
+            msg.imageData,
+            fetchCalendar
           );
           const hasDeletes = res.actions.some((a) => a.type === "delete_task");
           const needsApproval = !settings.autoApproveAI && hasDeletes;
@@ -919,11 +1148,25 @@ ${JSON.stringify(calendar, null, 2)}`
         }
         break;
       }
+      // ── Calendar ──────────────────────────────────────────────────────────────
+      case "calendarRefresh": {
+        const token = await ensureGoogleToken();
+        if (!token) {
+          port.postMessage({ type: "calendarData", events: [], error: "Google not connected." });
+          break;
+        }
+        try {
+          await refreshCalendarCache();
+        } catch (e) {
+          port.postMessage({ type: "calendarData", events: appState.calendarCache, error: e.message });
+        }
+        break;
+      }
     }
   }
   async function doApplyAI(response, prompt, port) {
     const before = clone(appState.tasks);
-    const { tasks, memory, calendarRequests } = applyActions(
+    const { tasks, memory, calendarRequests, calendarDeleteRequests } = applyActions(
       appState.tasks,
       appState.memory,
       response.actions
@@ -933,14 +1176,21 @@ ${JSON.stringify(calendar, null, 2)}`
     await persistState();
     broadcastState();
     let calendarNote = "";
-    if (calendarRequests.length) {
+    if (calendarRequests.length || calendarDeleteRequests.length) {
       const tok = await ensureGoogleToken();
       if (!tok) {
-        calendarNote = "\n\n\u26A0 Google Calendar not connected \u2014 event not saved. Connect it in Settings.";
+        calendarNote = "\n\n\u26A0 Google Calendar not connected \u2014 calendar change not saved. Connect it in Settings.";
       } else {
         try {
           const cal = new CalendarClient(tok);
-          await Promise.all(calendarRequests.map((r) => cal.createEvent(r)));
+          await Promise.all([
+            ...calendarRequests.map((r) => cal.createEvent(r)),
+            ...calendarDeleteRequests.map((id) => cal.deleteEvent(id))
+          ]);
+          const { events: refreshed } = await cal.getUpcomingEvents(14);
+          appState.calendarCache = refreshed;
+          await persistState();
+          broadcast({ type: "calendarData", events: refreshed });
         } catch (e) {
           calendarNote = `
 
