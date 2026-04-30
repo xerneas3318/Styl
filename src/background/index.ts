@@ -1,5 +1,5 @@
 import { Storage } from '../shared/storage';
-import type { AppState, AppSettings, TimerMode, BlockMode, BlockGate, BgMessage } from '../shared/types';
+import type { AppState, AppSettings, TimerMode, BlockGate, BgMessage } from '../shared/types';
 
 import {
   defaultTimerState, getTimeRemaining,
@@ -10,7 +10,7 @@ import {
 
 let appState: AppState = {
   timer:      defaultTimerState(),
-  blockState: { enabled: true, sites: [], blockMode: 'focus', gate: 'none', bypassPassword: '' },
+  blockState: { enabled: true, alwaysSites: [], focusSites: [], gate: 'none', bypassPassword: '' },
 };
 
 let settings: AppSettings = {
@@ -18,6 +18,10 @@ let settings: AppSettings = {
   breakDuration:     5  * 60,
   longBreakDuration: 15 * 60,
 };
+
+// Temporary per-site bypass: site → expiry timestamp (ms)
+// Set when the user successfully passes the gate; allows one navigation through.
+const tempBypass = new Map<string, number>();
 
 const ports = new Set<browser.runtime.Port>();
 
@@ -29,8 +33,15 @@ const ports = new Set<browser.runtime.Port>();
 
   if (savedState) {
     appState = savedState as AppState;
-    // Backfill new BlockState fields for existing saved states
-    if (!appState.blockState.blockMode)                   appState.blockState.blockMode = 'focus';
+    const bs = appState.blockState as Record<string, unknown>;
+
+    // Migrate old format that had a single `sites` array
+    if (!bs.alwaysSites && !bs.focusSites) {
+      appState.blockState.focusSites  = (bs.sites as string[] | undefined) ?? [];
+      appState.blockState.alwaysSites = [];
+    }
+    if (!appState.blockState.alwaysSites) appState.blockState.alwaysSites = [];
+    if (!appState.blockState.focusSites)  appState.blockState.focusSites  = [];
     if (!appState.blockState.gate)                        appState.blockState.gate = 'none';
     if (appState.blockState.bypassPassword === undefined) appState.blockState.bypassPassword = '';
 
@@ -91,9 +102,9 @@ function broadcastState(): void {
   broadcast({ type: 'stateUpdate', state: appState });
 }
 
-// One-shot message handler (used by blocked page and others)
+// One-shot messages (used by blocked page)
 browser.runtime.onMessage.addListener(
-  (msg: { type: string; password?: string }, _sender, sendResponse: (r: unknown) => void) => {
+  (msg: { type: string; password?: string; site?: string }, _sender, sendResponse: (r: unknown) => void) => {
     if (msg.type === 'getTimerState') {
       sendResponse({ timeRemaining: getTimeRemaining(appState.timer), mode: appState.timer.mode });
       return false;
@@ -105,6 +116,12 @@ browser.runtime.onMessage.addListener(
     if (msg.type === 'checkBypassPassword') {
       const pw = appState.blockState.bypassPassword;
       sendResponse({ allowed: pw !== '' && msg.password === pw });
+      return false;
+    }
+    if (msg.type === 'requestBypass') {
+      // Grant a 5-second window for the bypassed site to load without being intercepted
+      if (msg.site) tempBypass.set(msg.site, Date.now() + 5000);
+      sendResponse({ ok: true });
       return false;
     }
     return false;
@@ -152,20 +169,20 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.blockState.enabled = msg.enabled;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
-      if (msg.enabled && appState.blockState.blockMode === 'always') redirectBlockedTabs();
+      if (msg.enabled) redirectBlockedTabs();
       break;
 
-    case 'setBlockedSites':
-      appState.blockState.sites = msg.sites;
+    case 'setAlwaysSites':
+      appState.blockState.alwaysSites = msg.sites;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      redirectBlockedTabs();
       break;
 
-    case 'setBlockMode':
-      appState.blockState.blockMode = msg.mode as BlockMode;
+    case 'setFocusSites':
+      appState.blockState.focusSites = msg.sites;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
-      if (msg.mode === 'always') redirectBlockedTabs();
       break;
 
     case 'setBlockGate':
@@ -181,16 +198,34 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
   }
 }
 
-function shouldBlockNow(): boolean {
-  const { enabled, sites, blockMode } = appState.blockState;
-  if (!enabled || !sites.length) return false;
-  if (blockMode === 'always') return true;
-  return appState.timer.isRunning && appState.timer.mode === 'focus';
+// Returns whether the given host should be blocked right now,
+// and if so, which mode ('always' | 'focus') — used to inform the blocked page.
+function getBlockInfo(host: string): { blocked: boolean; bm: 'always' | 'focus' } | null {
+  const { enabled, alwaysSites, focusSites } = appState.blockState;
+  if (!enabled) return null;
+
+  // Check temporary bypass first
+  const exp = tempBypass.get(host);
+  if (exp !== undefined) {
+    if (Date.now() < exp) return null; // bypass still valid
+    tempBypass.delete(host);
+  }
+
+  if (alwaysSites.some((s) => host === s || host.endsWith('.' + s))) {
+    return { blocked: true, bm: 'always' };
+  }
+  if (appState.timer.isRunning && appState.timer.mode === 'focus') {
+    if (focusSites.some((s) => host === s || host.endsWith('.' + s))) {
+      return { blocked: true, bm: 'focus' };
+    }
+  }
+  return null;
 }
 
 async function redirectBlockedTabs(): Promise<void> {
-  if (!shouldBlockNow()) return;
-  const { sites, gate } = appState.blockState;
+  const { enabled } = appState.blockState;
+  if (!enabled) return;
+  const { gate } = appState.blockState;
 
   const tabs = await browser.tabs.query({});
   for (const tab of tabs) {
@@ -199,12 +234,13 @@ async function redirectBlockedTabs(): Promise<void> {
     let host: string;
     try { host = new URL(tab.url).hostname.replace(/^www\./, ''); }
     catch { continue; }
-    const isBlocked = sites.some((s) => host === s || host.endsWith('.' + s));
-    if (isBlocked) {
+    const info = getBlockInfo(host);
+    if (info) {
       const blockedUrl = browser.runtime.getURL('blocked/blocked.html')
         + '?site=' + encodeURIComponent(host)
         + '&from=' + encodeURIComponent(tab.url)
-        + '&gate=' + gate;
+        + '&gate=' + gate
+        + '&bm='   + info.bm;
       browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {});
     }
   }
@@ -216,22 +252,21 @@ async function persistState(): Promise<void> {
 
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (!shouldBlockNow()) return {};
-
     let host: string;
     try { host = new URL(details.url).hostname.replace(/^www\./, ''); }
     catch { return {}; }
 
-    const { sites, gate } = appState.blockState;
-    const blocked = sites.some((s) => host === s || host.endsWith('.' + s));
-    if (!blocked) return {};
+    const info = getBlockInfo(host);
+    if (!info) return {};
 
+    const { gate } = appState.blockState;
     return {
       redirectUrl:
         browser.runtime.getURL('blocked/blocked.html') +
         '?site=' + encodeURIComponent(host) +
         '&from=' + encodeURIComponent(details.url) +
-        '&gate=' + gate,
+        '&gate=' + gate +
+        '&bm='   + info.bm,
     };
   },
   { urls: ['<all_urls>'], types: ['main_frame'] },

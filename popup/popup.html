@@ -24,7 +24,6 @@
     </div>
   </header>
 
-  <!-- AI status bar -->
   <div class="ai-status hidden" id="ai-status"></div>
 
   <!-- ── Timer view ─────────────────────────────────────────────────────── -->
@@ -91,36 +90,23 @@
       <span class="bp-title">Block Sites</span>
     </div>
 
-    <!-- When to block -->
+    <!-- Enable toggle -->
     <div class="bp-toggle-row">
-      <div>
-        <div class="bp-toggle-label">Enable blocking</div>
-        <div class="bp-toggle-sub" id="block-enabled-sub">Only active during focus timer</div>
-      </div>
+      <div class="bp-toggle-label">Enable blocking</div>
       <label class="toggle">
         <input type="checkbox" id="block-enabled" checked>
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
       </label>
     </div>
 
-    <!-- Block mode: During focus / Always -->
-    <div class="bp-mode-row" id="bp-mode-row">
-      <div class="bp-mode-label">When to block</div>
-      <div class="bp-mode-chips">
-        <button class="bp-mode-chip active" id="bm-focus" data-bm="focus">During focus</button>
-        <button class="bp-mode-chip" id="bm-always" data-bm="always">Always</button>
-      </div>
-    </div>
-
-    <!-- Gate: how to handle blocked sites -->
+    <!-- Bypass gate -->
     <div class="bp-section">
-      <div class="bp-section-label">Bypass option</div>
+      <div class="bp-section-label">Bypass</div>
       <div class="bp-gate-chips">
         <button class="bp-gate-chip active" data-gate="none">Hard block</button>
         <button class="bp-gate-chip" data-gate="confirm">Ask me</button>
         <button class="bp-gate-chip" data-gate="password">Password</button>
       </div>
-      <!-- Password input — shown when gate=password -->
       <div class="bp-pw-row hidden" id="bp-pw-row">
         <input class="bp-pw-input" id="bp-pw-input" type="password"
                placeholder="Set bypass password" autocomplete="new-password">
@@ -129,23 +115,41 @@
       <div class="bp-pw-saved hidden" id="bp-pw-saved">Password saved.</div>
     </div>
 
-    <!-- Presets -->
-    <div class="bp-section">
-      <div class="bp-section-label">Presets</div>
+    <!-- ── Always Block ────────────────────────────────────────────── -->
+    <div class="bp-list-section">
+      <div class="bp-list-header">
+        <span class="bp-list-title">Always Block</span>
+        <span class="bp-list-sub">Blocked all the time</span>
+      </div>
       <div class="bp-preset-row">
-        <button class="bp-preset" data-preset="social">Social</button>
-        <button class="bp-preset" data-preset="video">Video</button>
-        <button class="bp-preset" data-preset="news">News</button>
+        <button class="bp-preset" data-list="always" data-preset="social">Social</button>
+        <button class="bp-preset" data-list="always" data-preset="video">Video</button>
+        <button class="bp-preset" data-list="always" data-preset="news">News</button>
+      </div>
+      <div class="bp-site-list" id="bp-always-list"></div>
+      <div class="bp-add-row">
+        <input class="bp-add-input" id="bp-always-input" type="text"
+               placeholder="e.g. example.com" autocomplete="off" spellcheck="false">
+        <button class="bp-add-btn" id="bp-always-add">+</button>
       </div>
     </div>
 
-    <div class="bp-section">
-      <div class="bp-section-label">Blocked Sites</div>
-      <div class="bp-site-list" id="bp-site-list"></div>
+    <!-- ── Focus Block ────────────────────────────────────────────── -->
+    <div class="bp-list-section">
+      <div class="bp-list-header">
+        <span class="bp-list-title">Focus Block</span>
+        <span class="bp-list-sub">Blocked only during focus timer</span>
+      </div>
+      <div class="bp-preset-row">
+        <button class="bp-preset" data-list="focus" data-preset="social">Social</button>
+        <button class="bp-preset" data-list="focus" data-preset="video">Video</button>
+        <button class="bp-preset" data-list="focus" data-preset="news">News</button>
+      </div>
+      <div class="bp-site-list" id="bp-focus-list"></div>
       <div class="bp-add-row">
-        <input class="bp-add-input" id="bp-add-input" type="text"
+        <input class="bp-add-input" id="bp-focus-input" type="text"
                placeholder="e.g. example.com" autocomplete="off" spellcheck="false">
-        <button class="bp-add-btn" id="bp-add-btn">+</button>
+        <button class="bp-add-btn" id="bp-focus-add">+</button>
       </div>
     </div>
 

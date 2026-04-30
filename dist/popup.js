@@ -10,30 +10,21 @@
   // src/popup/index.ts
   var RING_C = 2 * Math.PI * 52;
   var BLOCK_PRESETS = {
-    social: {
-      label: "Social",
-      sites: [
-        "instagram.com",
-        "facebook.com",
-        "twitter.com",
-        "x.com",
-        "tiktok.com",
-        "reddit.com",
-        "snapchat.com",
-        "pinterest.com",
-        "threads.net",
-        "linkedin.com",
-        "tumblr.com"
-      ]
-    },
-    video: {
-      label: "Video",
-      sites: ["youtube.com", "netflix.com", "twitch.tv", "hulu.com", "disneyplus.com", "primevideo.com", "vimeo.com"]
-    },
-    news: {
-      label: "News",
-      sites: ["cnn.com", "bbc.com", "nytimes.com", "buzzfeed.com", "theguardian.com", "huffpost.com", "dailymail.co.uk"]
-    }
+    social: [
+      "instagram.com",
+      "facebook.com",
+      "twitter.com",
+      "x.com",
+      "tiktok.com",
+      "reddit.com",
+      "snapchat.com",
+      "pinterest.com",
+      "threads.net",
+      "linkedin.com",
+      "tumblr.com"
+    ],
+    video: ["youtube.com", "netflix.com", "twitch.tv", "hulu.com", "disneyplus.com", "primevideo.com", "vimeo.com"],
+    news: ["cnn.com", "bbc.com", "nytimes.com", "buzzfeed.com", "theguardian.com", "huffpost.com", "dailymail.co.uk"]
   };
   var DURATION_PRESETS = {
     focus: [15, 20, 25, 30, 45, 60, 90],
@@ -42,7 +33,13 @@
   };
   var port = null;
   var state = null;
-  var blockState = { enabled: true, sites: [], blockMode: "focus", gate: "none", bypassPassword: "" };
+  var blockState = {
+    enabled: true,
+    alwaysSites: [],
+    focusSites: [],
+    gate: "none",
+    bypassPassword: ""
+  };
   var isEditing = false;
   function connect() {
     port = browser.runtime.connect({ name: "popup" });
@@ -149,39 +146,23 @@
     });
   }
   function updateShield() {
-    const active = blockState.enabled && blockState.sites.length > 0;
+    const hasAlways = blockState.enabled && blockState.alwaysSites.length > 0;
+    const hasFocus = blockState.enabled && blockState.focusSites.length > 0;
+    const active = hasAlways || hasFocus;
     document.getElementById("shield-btn").classList.toggle("active", active);
-    document.getElementById("shield-btn").classList.toggle("always-on", active && blockState.blockMode === "always");
+    document.getElementById("shield-btn").classList.toggle("always-on", hasAlways);
   }
-  function renderBlockPanel() {
-    document.getElementById("block-enabled").checked = blockState.enabled;
-    const sub = document.getElementById("block-enabled-sub");
-    sub.textContent = blockState.blockMode === "always" ? "Blocking is always active" : "Only active during focus timer";
-    document.querySelectorAll(".bp-mode-chip").forEach((el) => {
-      el.classList.toggle("active", el.dataset.bm === blockState.blockMode);
-    });
-    document.querySelectorAll(".bp-gate-chip").forEach((el) => {
-      el.classList.toggle("active", el.dataset.gate === blockState.gate);
-    });
-    const pwRow = document.getElementById("bp-pw-row");
-    pwRow.classList.toggle("hidden", blockState.gate !== "password");
-    document.querySelectorAll(".bp-preset").forEach((el) => {
-      const preset = BLOCK_PRESETS[el.dataset.preset];
-      if (!preset) return;
-      const n = preset.sites.filter((s) => blockState.sites.includes(s)).length;
-      el.classList.toggle("all-on", n === preset.sites.length);
-      el.classList.toggle("some-on", n > 0 && n < preset.sites.length);
-    });
-    const list = document.getElementById("bp-site-list");
+  function renderSiteList(listId, sites, onRemove) {
+    const list = document.getElementById(listId);
     list.innerHTML = "";
-    if (!blockState.sites.length) {
+    if (!sites.length) {
       const empty = document.createElement("div");
       empty.className = "bp-empty";
-      empty.textContent = "No sites blocked.";
+      empty.textContent = "No sites.";
       list.appendChild(empty);
       return;
     }
-    [...blockState.sites].sort().forEach((site) => {
+    [...sites].sort().forEach((site) => {
       const row = document.createElement("div");
       row.className = "bp-site-row";
       const dom = document.createElement("span");
@@ -190,29 +171,56 @@
       const rm = document.createElement("button");
       rm.className = "bp-site-remove";
       rm.textContent = "\xD7";
-      rm.addEventListener(
-        "click",
-        () => send({ type: "setBlockedSites", sites: blockState.sites.filter((s) => s !== site) })
-      );
+      rm.addEventListener("click", () => onRemove(site));
       row.append(dom, rm);
       list.appendChild(row);
     });
   }
-  function togglePreset(key) {
+  function renderBlockPanel() {
+    document.getElementById("block-enabled").checked = blockState.enabled;
+    document.querySelectorAll(".bp-gate-chip").forEach(
+      (el) => el.classList.toggle("active", el.dataset.gate === blockState.gate)
+    );
+    document.getElementById("bp-pw-row").classList.toggle("hidden", blockState.gate !== "password");
+    document.querySelectorAll(".bp-preset").forEach((el) => {
+      const key = el.dataset.preset;
+      const isList = el.dataset.list;
+      const preset = BLOCK_PRESETS[key];
+      if (!preset) return;
+      const sites = isList === "always" ? blockState.alwaysSites : blockState.focusSites;
+      const n = preset.filter((s) => sites.includes(s)).length;
+      el.classList.toggle("all-on", n === preset.length);
+      el.classList.toggle("some-on", n > 0 && n < preset.length);
+    });
+    renderSiteList(
+      "bp-always-list",
+      blockState.alwaysSites,
+      (site) => send({ type: "setAlwaysSites", sites: blockState.alwaysSites.filter((s) => s !== site) })
+    );
+    renderSiteList(
+      "bp-focus-list",
+      blockState.focusSites,
+      (site) => send({ type: "setFocusSites", sites: blockState.focusSites.filter((s) => s !== site) })
+    );
+  }
+  function togglePreset(key, list) {
     const preset = BLOCK_PRESETS[key];
     if (!preset) return;
-    const allOn = preset.sites.every((s) => blockState.sites.includes(s));
-    let next = [...blockState.sites];
-    if (allOn) next = next.filter((s) => !preset.sites.includes(s));
-    else preset.sites.forEach((s) => {
+    const current = list === "always" ? blockState.alwaysSites : blockState.focusSites;
+    const allOn = preset.every((s) => current.includes(s));
+    let next = [...current];
+    if (allOn) next = next.filter((s) => !preset.includes(s));
+    else preset.forEach((s) => {
       if (!next.includes(s)) next.push(s);
     });
-    send({ type: "setBlockedSites", sites: next });
+    send({ type: list === "always" ? "setAlwaysSites" : "setFocusSites", sites: next });
   }
-  function addCustomSite(raw) {
+  function addSite(raw, list) {
     const domain = raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split("?")[0];
-    if (!domain || blockState.sites.includes(domain)) return false;
-    send({ type: "setBlockedSites", sites: [...blockState.sites, domain] });
+    if (!domain) return false;
+    const current = list === "always" ? blockState.alwaysSites : blockState.focusSites;
+    if (current.includes(domain)) return false;
+    send({ type: list === "always" ? "setAlwaysSites" : "setFocusSites", sites: [...current, domain] });
     return true;
   }
   function wire() {
@@ -255,17 +263,11 @@
       "change",
       (e) => send({ type: "setBlockEnabled", enabled: e.target.checked })
     );
-    document.querySelectorAll(".bp-mode-chip").forEach(
+    document.querySelectorAll(".bp-gate-chip").forEach(
       (el) => el.addEventListener(
         "click",
-        () => send({ type: "setBlockMode", mode: el.dataset.bm })
+        () => send({ type: "setBlockGate", gate: el.dataset.gate })
       )
-    );
-    document.querySelectorAll(".bp-gate-chip").forEach(
-      (el) => el.addEventListener("click", () => {
-        const gate = el.dataset.gate;
-        send({ type: "setBlockGate", gate });
-      })
     );
     document.getElementById("bp-pw-save").addEventListener("click", () => {
       const inp = document.getElementById("bp-pw-input");
@@ -278,22 +280,37 @@
       setTimeout(() => saved.classList.add("hidden"), 2e3);
     });
     document.getElementById("bp-pw-input").addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      document.getElementById("bp-pw-save").click();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.getElementById("bp-pw-save").click();
+      }
     });
     document.querySelectorAll(".bp-preset").forEach(
-      (el) => el.addEventListener("click", () => togglePreset(el.dataset.preset))
+      (el) => el.addEventListener("click", () => {
+        const list = el.dataset.list;
+        const preset = el.dataset.preset;
+        togglePreset(preset, list);
+      })
     );
-    document.getElementById("bp-add-btn").addEventListener("click", () => {
-      const inp = document.getElementById("bp-add-input");
-      if (addCustomSite(inp.value)) inp.value = "";
+    document.getElementById("bp-always-add").addEventListener("click", () => {
+      const inp = document.getElementById("bp-always-input");
+      if (addSite(inp.value, "always")) inp.value = "";
     });
-    document.getElementById("bp-add-input").addEventListener("keydown", (e) => {
+    document.getElementById("bp-always-input").addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       e.preventDefault();
       const inp = e.target;
-      if (addCustomSite(inp.value)) inp.value = "";
+      if (addSite(inp.value, "always")) inp.value = "";
+    });
+    document.getElementById("bp-focus-add").addEventListener("click", () => {
+      const inp = document.getElementById("bp-focus-input");
+      if (addSite(inp.value, "focus")) inp.value = "";
+    });
+    document.getElementById("bp-focus-input").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const inp = e.target;
+      if (addSite(inp.value, "focus")) inp.value = "";
     });
     document.getElementById("settings-link")?.addEventListener(
       "click",

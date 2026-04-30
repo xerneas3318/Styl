@@ -1,24 +1,15 @@
-import type { AppState, TimerMode, BlockState, BlockMode, BlockGate } from '../shared/types';
+import type { AppState, TimerMode, BlockState, BlockGate } from '../shared/types';
 import { fmt } from '../shared/utils';
 
 declare function playChime(): void;
 
 const RING_C = 2 * Math.PI * 52; // r=52
 
-const BLOCK_PRESETS: Record<string, { label: string; sites: string[] }> = {
-  social: {
-    label: 'Social',
-    sites: ['instagram.com','facebook.com','twitter.com','x.com','tiktok.com',
-            'reddit.com','snapchat.com','pinterest.com','threads.net','linkedin.com','tumblr.com'],
-  },
-  video: {
-    label: 'Video',
-    sites: ['youtube.com','netflix.com','twitch.tv','hulu.com','disneyplus.com','primevideo.com','vimeo.com'],
-  },
-  news: {
-    label: 'News',
-    sites: ['cnn.com','bbc.com','nytimes.com','buzzfeed.com','theguardian.com','huffpost.com','dailymail.co.uk'],
-  },
+const BLOCK_PRESETS: Record<string, string[]> = {
+  social: ['instagram.com','facebook.com','twitter.com','x.com','tiktok.com',
+           'reddit.com','snapchat.com','pinterest.com','threads.net','linkedin.com','tumblr.com'],
+  video:  ['youtube.com','netflix.com','twitch.tv','hulu.com','disneyplus.com','primevideo.com','vimeo.com'],
+  news:   ['cnn.com','bbc.com','nytimes.com','buzzfeed.com','theguardian.com','huffpost.com','dailymail.co.uk'],
 };
 
 const DURATION_PRESETS: Record<string, number[]> = {
@@ -29,8 +20,10 @@ const DURATION_PRESETS: Record<string, number[]> = {
 
 let port:       browser.runtime.Port | null = null;
 let state:      AppState | null             = null;
-let blockState: BlockState                  = { enabled: true, sites: [], blockMode: 'focus', gate: 'none', bypassPassword: '' };
-let isEditing   = false;
+let blockState: BlockState = {
+  enabled: true, alwaysSites: [], focusSites: [], gate: 'none', bypassPassword: '',
+};
+let isEditing = false;
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
@@ -84,9 +77,9 @@ function render() {
 
   (document.getElementById('add-min-btn') as HTMLElement).classList.toggle('hidden', !t.isRunning);
 
-  const dots  = document.getElementById('sessions-dots') as HTMLElement;
+  const dots = document.getElementById('sessions-dots') as HTMLElement;
   dots.innerHTML = '';
-  const pos  = t.sessionsCompleted % 4;
+  const pos = t.sessionsCompleted % 4;
   for (let i = 0; i < 4; i++) {
     const d = document.createElement('div');
     d.className = 'session-dot' + (i < pos ? ' filled' : '');
@@ -156,53 +149,24 @@ function buildDurationPresets(mode: TimerMode, current: number) {
 // ── Block panel ───────────────────────────────────────────────────────────────
 
 function updateShield() {
-  const active = blockState.enabled && blockState.sites.length > 0;
-  document.getElementById('shield-btn')!.classList.toggle('active', active);
-  document.getElementById('shield-btn')!.classList.toggle('always-on', active && blockState.blockMode === 'always');
+  const hasAlways = blockState.enabled && blockState.alwaysSites.length > 0;
+  const hasFocus  = blockState.enabled && blockState.focusSites.length > 0;
+  const active    = hasAlways || hasFocus;
+  document.getElementById('shield-btn')!.classList.toggle('active',    active);
+  document.getElementById('shield-btn')!.classList.toggle('always-on', hasAlways);
 }
 
-function renderBlockPanel() {
-  // Enable toggle + subtitle
-  (document.getElementById('block-enabled') as HTMLInputElement).checked = blockState.enabled;
-  const sub = document.getElementById('block-enabled-sub') as HTMLElement;
-  sub.textContent = blockState.blockMode === 'always'
-    ? 'Blocking is always active'
-    : 'Only active during focus timer';
-
-  // Block mode chips
-  document.querySelectorAll('.bp-mode-chip').forEach((el) => {
-    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.bm === blockState.blockMode);
-  });
-
-  // Gate chips
-  document.querySelectorAll('.bp-gate-chip').forEach((el) => {
-    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.gate === blockState.gate);
-  });
-
-  // Password row visibility
-  const pwRow = document.getElementById('bp-pw-row') as HTMLElement;
-  pwRow.classList.toggle('hidden', blockState.gate !== 'password');
-
-  // Preset states
-  document.querySelectorAll('.bp-preset').forEach((el) => {
-    const preset = BLOCK_PRESETS[(el as HTMLElement).dataset.preset!];
-    if (!preset) return;
-    const n = preset.sites.filter((s) => blockState.sites.includes(s)).length;
-    (el as HTMLElement).classList.toggle('all-on',  n === preset.sites.length);
-    (el as HTMLElement).classList.toggle('some-on', n > 0 && n < preset.sites.length);
-  });
-
-  // Site list
-  const list = document.getElementById('bp-site-list') as HTMLElement;
+function renderSiteList(listId: string, sites: string[], onRemove: (site: string) => void) {
+  const list = document.getElementById(listId) as HTMLElement;
   list.innerHTML = '';
-  if (!blockState.sites.length) {
+  if (!sites.length) {
     const empty = document.createElement('div');
     empty.className = 'bp-empty';
-    empty.textContent = 'No sites blocked.';
+    empty.textContent = 'No sites.';
     list.appendChild(empty);
     return;
   }
-  [...blockState.sites].sort().forEach((site) => {
+  [...sites].sort().forEach((site) => {
     const row = document.createElement('div');
     row.className = 'bp-site-row';
     const dom = document.createElement('span');
@@ -211,44 +175,69 @@ function renderBlockPanel() {
     const rm = document.createElement('button');
     rm.className = 'bp-site-remove';
     rm.textContent = '×';
-    rm.addEventListener('click', () =>
-      send({ type: 'setBlockedSites', sites: blockState.sites.filter((s) => s !== site) })
-    );
+    rm.addEventListener('click', () => onRemove(site));
     row.append(dom, rm);
     list.appendChild(row);
   });
 }
 
-function togglePreset(key: string) {
+function renderBlockPanel() {
+  (document.getElementById('block-enabled') as HTMLInputElement).checked = blockState.enabled;
+
+  // Gate chips
+  document.querySelectorAll('.bp-gate-chip').forEach((el) =>
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.gate === blockState.gate)
+  );
+  (document.getElementById('bp-pw-row') as HTMLElement).classList.toggle('hidden', blockState.gate !== 'password');
+
+  // Preset states for both lists
+  document.querySelectorAll('.bp-preset').forEach((el) => {
+    const key    = (el as HTMLElement).dataset.preset!;
+    const isList = (el as HTMLElement).dataset.list as 'always' | 'focus';
+    const preset = BLOCK_PRESETS[key];
+    if (!preset) return;
+    const sites = isList === 'always' ? blockState.alwaysSites : blockState.focusSites;
+    const n = preset.filter((s) => sites.includes(s)).length;
+    (el as HTMLElement).classList.toggle('all-on',  n === preset.length);
+    (el as HTMLElement).classList.toggle('some-on', n > 0 && n < preset.length);
+  });
+
+  // Always block list
+  renderSiteList('bp-always-list', blockState.alwaysSites, (site) =>
+    send({ type: 'setAlwaysSites', sites: blockState.alwaysSites.filter((s) => s !== site) })
+  );
+
+  // Focus block list
+  renderSiteList('bp-focus-list', blockState.focusSites, (site) =>
+    send({ type: 'setFocusSites', sites: blockState.focusSites.filter((s) => s !== site) })
+  );
+}
+
+function togglePreset(key: string, list: 'always' | 'focus') {
   const preset = BLOCK_PRESETS[key];
   if (!preset) return;
-  const allOn = preset.sites.every((s) => blockState.sites.includes(s));
-  let next = [...blockState.sites];
-  if (allOn) next = next.filter((s) => !preset.sites.includes(s));
-  else preset.sites.forEach((s) => { if (!next.includes(s)) next.push(s); });
-  send({ type: 'setBlockedSites', sites: next });
+  const current = list === 'always' ? blockState.alwaysSites : blockState.focusSites;
+  const allOn   = preset.every((s) => current.includes(s));
+  let next = [...current];
+  if (allOn) next = next.filter((s) => !preset.includes(s));
+  else preset.forEach((s) => { if (!next.includes(s)) next.push(s); });
+  send({ type: list === 'always' ? 'setAlwaysSites' : 'setFocusSites', sites: next });
 }
 
-function addCustomSite(raw: string): boolean {
+function addSite(raw: string, list: 'always' | 'focus'): boolean {
   const domain = raw.trim().toLowerCase()
     .replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split('?')[0];
-  if (!domain || blockState.sites.includes(domain)) return false;
-  send({ type: 'setBlockedSites', sites: [...blockState.sites, domain] });
+  if (!domain) return false;
+  const current = list === 'always' ? blockState.alwaysSites : blockState.focusSites;
+  if (current.includes(domain)) return false;
+  send({ type: list === 'always' ? 'setAlwaysSites' : 'setFocusSites', sites: [...current, domain] });
   return true;
-}
-
-function setStatus(msg: string) {
-  const el = document.getElementById('ai-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 5000);
 }
 
 // ── Event wiring ──────────────────────────────────────────────────────────────
 
 function wire() {
-  // Shield toggle
+  // Shield / back
   document.getElementById('shield-btn')!.addEventListener('click', () => {
     document.getElementById('timer-view')!.classList.add('hidden');
     document.getElementById('block-panel')!.classList.remove('hidden');
@@ -258,7 +247,7 @@ function wire() {
     document.getElementById('timer-view')!.classList.remove('hidden');
   });
 
-  // Timer
+  // Timer controls
   document.getElementById('time-text')!.addEventListener('click', enterEditMode);
   (document.getElementById('time-edit') as HTMLInputElement).addEventListener('keydown', (e) => {
     if (e.key === 'Enter')  { e.preventDefault(); exitEditMode(true); }
@@ -280,27 +269,19 @@ function wire() {
   document.getElementById('skip-btn')!.addEventListener('click',  () => send({ type: 'timerSkip' }));
   document.getElementById('add-min-btn')!.addEventListener('click', () => send({ type: 'timerAddMinute' }));
 
-  // Block panel — enable toggle
+  // Block enabled toggle
   (document.getElementById('block-enabled') as HTMLInputElement).addEventListener('change', (e) =>
     send({ type: 'setBlockEnabled', enabled: (e.target as HTMLInputElement).checked })
   );
 
-  // Block mode chips (During focus / Always)
-  document.querySelectorAll('.bp-mode-chip').forEach((el) =>
+  // Gate chips
+  document.querySelectorAll('.bp-gate-chip').forEach((el) =>
     el.addEventListener('click', () =>
-      send({ type: 'setBlockMode', mode: (el as HTMLElement).dataset.bm as BlockMode })
+      send({ type: 'setBlockGate', gate: (el as HTMLElement).dataset.gate as BlockGate })
     )
   );
 
-  // Gate chips (Hard block / Ask me / Password)
-  document.querySelectorAll('.bp-gate-chip').forEach((el) =>
-    el.addEventListener('click', () => {
-      const gate = (el as HTMLElement).dataset.gate as BlockGate;
-      send({ type: 'setBlockGate', gate });
-    })
-  );
-
-  // Password set button
+  // Password save
   document.getElementById('bp-pw-save')!.addEventListener('click', () => {
     const inp = document.getElementById('bp-pw-input') as HTMLInputElement;
     const pw  = inp.value.trim();
@@ -312,26 +293,40 @@ function wire() {
     setTimeout(() => saved.classList.add('hidden'), 2000);
   });
   (document.getElementById('bp-pw-input') as HTMLInputElement).addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    document.getElementById('bp-pw-save')!.click();
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('bp-pw-save')!.click(); }
   });
 
-  // Presets
+  // Presets (both lists)
   document.querySelectorAll('.bp-preset').forEach((el) =>
-    el.addEventListener('click', () => togglePreset((el as HTMLElement).dataset.preset!))
+    el.addEventListener('click', () => {
+      const list   = (el as HTMLElement).dataset.list   as 'always' | 'focus';
+      const preset = (el as HTMLElement).dataset.preset as string;
+      togglePreset(preset, list);
+    })
   );
 
-  // Add site
-  document.getElementById('bp-add-btn')!.addEventListener('click', () => {
-    const inp = document.getElementById('bp-add-input') as HTMLInputElement;
-    if (addCustomSite(inp.value)) inp.value = '';
+  // Add site — always
+  document.getElementById('bp-always-add')!.addEventListener('click', () => {
+    const inp = document.getElementById('bp-always-input') as HTMLInputElement;
+    if (addSite(inp.value, 'always')) inp.value = '';
   });
-  (document.getElementById('bp-add-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+  (document.getElementById('bp-always-input') as HTMLInputElement).addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const inp = e.target as HTMLInputElement;
-    if (addCustomSite(inp.value)) inp.value = '';
+    if (addSite(inp.value, 'always')) inp.value = '';
+  });
+
+  // Add site — focus
+  document.getElementById('bp-focus-add')!.addEventListener('click', () => {
+    const inp = document.getElementById('bp-focus-input') as HTMLInputElement;
+    if (addSite(inp.value, 'focus')) inp.value = '';
+  });
+  (document.getElementById('bp-focus-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const inp = e.target as HTMLInputElement;
+    if (addSite(inp.value, 'focus')) inp.value = '';
   });
 
   // Settings link
