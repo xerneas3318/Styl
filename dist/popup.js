@@ -9,7 +9,7 @@
 
   // src/popup/index.ts
   var RING_C = 2 * Math.PI * 52;
-  var BLOCK_PRESETS = {
+  var DEFAULT_PRESETS = {
     social: [
       "instagram.com",
       "facebook.com",
@@ -38,9 +38,11 @@
     alwaysSites: [],
     focusSites: [],
     gate: "none",
-    bypassPassword: ""
+    bypassPassword: "",
+    presets: { ...DEFAULT_PRESETS }
   };
   var isEditing = false;
+  var currentPreset = "social";
   function connect() {
     port = browser.runtime.connect({ name: "popup" });
     port.onMessage.addListener((msg) => {
@@ -50,12 +52,14 @@
           blockState = msg.state.blockState ?? blockState;
           render();
           renderBlockPanel();
+          renderPresetEditor();
           updateShield();
           if (msg.event === "timerComplete") playChime();
           break;
         case "blockStateUpdate":
           blockState = msg.blockState;
           renderBlockPanel();
+          renderPresetEditor();
           updateShield();
           break;
       }
@@ -152,13 +156,13 @@
     document.getElementById("shield-btn").classList.toggle("active", active);
     document.getElementById("shield-btn").classList.toggle("always-on", hasAlways);
   }
-  function renderSiteList(listId, sites, onRemove) {
+  function renderSiteList(listId, sites, onRemove, emptyText = "No sites.") {
     const list = document.getElementById(listId);
     list.innerHTML = "";
     if (!sites.length) {
       const empty = document.createElement("div");
       empty.className = "bp-empty";
-      empty.textContent = "No sites.";
+      empty.textContent = emptyText;
       list.appendChild(empty);
       return;
     }
@@ -182,14 +186,14 @@
       (el) => el.classList.toggle("active", el.dataset.gate === blockState.gate)
     );
     document.getElementById("bp-pw-row").classList.toggle("hidden", blockState.gate !== "password");
+    const presets = blockState.presets ?? DEFAULT_PRESETS;
     document.querySelectorAll(".bp-preset").forEach((el) => {
       const key = el.dataset.preset;
       const isList = el.dataset.list;
-      const preset = BLOCK_PRESETS[key];
-      if (!preset) return;
+      const preset = presets[key] ?? [];
       const sites = isList === "always" ? blockState.alwaysSites : blockState.focusSites;
       const n = preset.filter((s) => sites.includes(s)).length;
-      el.classList.toggle("all-on", n === preset.length);
+      el.classList.toggle("all-on", n === preset.length && preset.length > 0);
       el.classList.toggle("some-on", n > 0 && n < preset.length);
     });
     renderSiteList(
@@ -204,10 +208,9 @@
     );
   }
   function togglePreset(key, list) {
-    const preset = BLOCK_PRESETS[key];
-    if (!preset) return;
+    const preset = (blockState.presets ?? DEFAULT_PRESETS)[key] ?? [];
     const current = list === "always" ? blockState.alwaysSites : blockState.focusSites;
-    const allOn = preset.every((s) => current.includes(s));
+    const allOn = preset.length > 0 && preset.every((s) => current.includes(s));
     let next = [...current];
     if (allOn) next = next.filter((s) => !preset.includes(s));
     else preset.forEach((s) => {
@@ -223,15 +226,36 @@
     send({ type: list === "always" ? "setAlwaysSites" : "setFocusSites", sites: [...current, domain] });
     return true;
   }
+  function renderPresetEditor() {
+    document.querySelectorAll(".pe-tab").forEach(
+      (el) => el.classList.toggle("active", el.dataset.pt === currentPreset)
+    );
+    const presets = blockState.presets ?? DEFAULT_PRESETS;
+    const sites = presets[currentPreset] ?? [];
+    renderSiteList("pe-site-list", sites, (site) => {
+      const updated = { ...presets, [currentPreset]: presets[currentPreset].filter((s) => s !== site) };
+      send({ type: "setPresets", presets: updated });
+    }, "No sites in this preset.");
+  }
+  function addToPreset(raw) {
+    const domain = raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split("?")[0];
+    if (!domain) return false;
+    const presets = blockState.presets ?? DEFAULT_PRESETS;
+    const current = presets[currentPreset] ?? [];
+    if (current.includes(domain)) return false;
+    send({ type: "setPresets", presets: { ...presets, [currentPreset]: [...current, domain] } });
+    return true;
+  }
+  function showPanel(id) {
+    for (const panelId of ["timer-view", "block-panel", "preset-editor"]) {
+      document.getElementById(panelId).classList.toggle("hidden", panelId !== id);
+    }
+  }
   function wire() {
-    document.getElementById("shield-btn").addEventListener("click", () => {
-      document.getElementById("timer-view").classList.add("hidden");
-      document.getElementById("block-panel").classList.remove("hidden");
-    });
-    document.getElementById("block-back-btn").addEventListener("click", () => {
-      document.getElementById("block-panel").classList.add("hidden");
-      document.getElementById("timer-view").classList.remove("hidden");
-    });
+    document.getElementById("shield-btn").addEventListener("click", () => showPanel("block-panel"));
+    document.getElementById("block-back-btn").addEventListener("click", () => showPanel("timer-view"));
+    document.getElementById("bp-edit-presets-btn").addEventListener("click", () => showPanel("preset-editor"));
+    document.getElementById("preset-back-btn").addEventListener("click", () => showPanel("block-panel"));
     document.getElementById("time-text").addEventListener("click", enterEditMode);
     document.getElementById("time-edit").addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -286,11 +310,13 @@
       }
     });
     document.querySelectorAll(".bp-preset").forEach(
-      (el) => el.addEventListener("click", () => {
-        const list = el.dataset.list;
-        const preset = el.dataset.preset;
-        togglePreset(preset, list);
-      })
+      (el) => el.addEventListener(
+        "click",
+        () => togglePreset(
+          el.dataset.preset,
+          el.dataset.list
+        )
+      )
     );
     document.getElementById("bp-always-add").addEventListener("click", () => {
       const inp = document.getElementById("bp-always-input");
@@ -311,6 +337,26 @@
       e.preventDefault();
       const inp = e.target;
       if (addSite(inp.value, "focus")) inp.value = "";
+    });
+    document.querySelectorAll(".pe-tab").forEach(
+      (el) => el.addEventListener("click", () => {
+        currentPreset = el.dataset.pt;
+        renderPresetEditor();
+      })
+    );
+    document.getElementById("pe-add-btn").addEventListener("click", () => {
+      const inp = document.getElementById("pe-add-input");
+      if (addToPreset(inp.value)) inp.value = "";
+    });
+    document.getElementById("pe-add-input").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const inp = e.target;
+      if (addToPreset(inp.value)) inp.value = "";
+    });
+    document.getElementById("pe-reset-btn").addEventListener("click", () => {
+      const presets = blockState.presets ?? DEFAULT_PRESETS;
+      send({ type: "setPresets", presets: { ...presets, [currentPreset]: [...DEFAULT_PRESETS[currentPreset]] } });
     });
     document.getElementById("settings-link")?.addEventListener(
       "click",

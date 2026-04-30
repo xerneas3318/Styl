@@ -13,12 +13,19 @@ export interface TimerState {
   sessionsCompleted:    number;
 }
 
+export interface BlockPresets {
+  social: string[];
+  video:  string[];
+  news:   string[];
+}
+
 export interface BlockState {
   enabled:        boolean;
-  alwaysSites:    string[];  // blocked all the time
-  focusSites:     string[];  // blocked only during focus timer
-  gate:           BlockGate; // 'none' = hard block, 'confirm' = are you sure, 'password' = pin
-  bypassPassword: string;    // only used when gate === 'password'
+  alwaysSites:    string[];
+  focusSites:     string[];
+  gate:           BlockGate;
+  bypassPassword: string;
+  presets:        BlockPresets;
 }
 
 export interface AppState {
@@ -45,6 +52,7 @@ export type BgMessage =
   | { type: 'setAlwaysSites';      sites: string[] }
   | { type: 'setFocusSites';       sites: string[] }
   | { type: 'setBlockGate';        gate: BlockGate; password?: string }
+  | { type: 'setPresets';          presets: BlockPresets }
   | { type: 'requestBypass';       site: string }
   | { type: 'checkBypassPassword'; password: string }
   | { type: 'getTimerState' }

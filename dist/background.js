@@ -158,9 +158,33 @@
   }
 
   // src/background/index.ts
+  var DEFAULT_PRESETS = {
+    social: [
+      "instagram.com",
+      "facebook.com",
+      "twitter.com",
+      "x.com",
+      "tiktok.com",
+      "reddit.com",
+      "snapchat.com",
+      "pinterest.com",
+      "threads.net",
+      "linkedin.com",
+      "tumblr.com"
+    ],
+    video: ["youtube.com", "netflix.com", "twitch.tv", "hulu.com", "disneyplus.com", "primevideo.com", "vimeo.com"],
+    news: ["cnn.com", "bbc.com", "nytimes.com", "buzzfeed.com", "theguardian.com", "huffpost.com", "dailymail.co.uk"]
+  };
   var appState = {
     timer: defaultTimerState(),
-    blockState: { enabled: true, alwaysSites: [], focusSites: [], gate: "none", bypassPassword: "" }
+    blockState: {
+      enabled: true,
+      alwaysSites: [],
+      focusSites: [],
+      gate: "none",
+      bypassPassword: "",
+      presets: { ...DEFAULT_PRESETS }
+    }
   };
   var settings = {
     focusDuration: 25 * 60,
@@ -185,6 +209,7 @@
       if (!appState.blockState.focusSites) appState.blockState.focusSites = [];
       if (!appState.blockState.gate) appState.blockState.gate = "none";
       if (appState.blockState.bypassPassword === void 0) appState.blockState.bypassPassword = "";
+      if (!appState.blockState.presets) appState.blockState.presets = { ...DEFAULT_PRESETS };
       if (appState.timer.isRunning && appState.timer.startTime !== null) {
         const remaining = getTimeRemaining(appState.timer);
         if (remaining <= 0) {
@@ -304,17 +329,20 @@
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
         if (msg.enabled) redirectBlockedTabs();
+        else unblockFreedTabs();
         break;
       case "setAlwaysSites":
         appState.blockState.alwaysSites = msg.sites;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
         redirectBlockedTabs();
+        unblockFreedTabs();
         break;
       case "setFocusSites":
         appState.blockState.focusSites = msg.sites;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        unblockFreedTabs();
         break;
       case "setBlockGate":
         appState.blockState.gate = msg.gate;
@@ -326,7 +354,21 @@
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
         break;
+      case "setPresets":
+        appState.blockState.presets = msg.presets;
+        await persistState();
+        broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        break;
     }
+  }
+  function isPermBlocked(host) {
+    const { enabled, alwaysSites, focusSites } = appState.blockState;
+    if (!enabled) return false;
+    if (alwaysSites.some((s) => host === s || host.endsWith("." + s))) return true;
+    if (appState.timer.isRunning && appState.timer.mode === "focus") {
+      return focusSites.some((s) => host === s || host.endsWith("." + s));
+    }
+    return false;
   }
   function getBlockInfo(host) {
     const { enabled, alwaysSites, focusSites } = appState.blockState;
@@ -337,18 +379,17 @@
       tempBypass.delete(host);
     }
     if (alwaysSites.some((s) => host === s || host.endsWith("." + s))) {
-      return { blocked: true, bm: "always" };
+      return { bm: "always" };
     }
     if (appState.timer.isRunning && appState.timer.mode === "focus") {
       if (focusSites.some((s) => host === s || host.endsWith("." + s))) {
-        return { blocked: true, bm: "focus" };
+        return { bm: "focus" };
       }
     }
     return null;
   }
   async function redirectBlockedTabs() {
-    const { enabled } = appState.blockState;
-    if (!enabled) return;
+    if (!appState.blockState.enabled) return;
     const { gate } = appState.blockState;
     const tabs = await browser.tabs.query({});
     for (const tab of tabs) {
@@ -364,6 +405,27 @@
       if (info) {
         const blockedUrl = browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(tab.url) + "&gate=" + gate + "&bm=" + info.bm;
         browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {
+        });
+      }
+    }
+  }
+  async function unblockFreedTabs() {
+    const blockedBase = browser.runtime.getURL("blocked/blocked.html");
+    const tabs = await browser.tabs.query({});
+    for (const tab of tabs) {
+      if (!tab.url || !tab.id) continue;
+      if (!tab.url.startsWith(blockedBase)) continue;
+      let params;
+      try {
+        params = new URL(tab.url).searchParams;
+      } catch {
+        continue;
+      }
+      const site = params.get("site");
+      const from = params.get("from");
+      if (!site || !from) continue;
+      if (!isPermBlocked(site)) {
+        browser.tabs.update(tab.id, { url: from }).catch(() => {
         });
       }
     }

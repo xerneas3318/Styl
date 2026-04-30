@@ -540,6 +540,21 @@ body {
 /* Shield glows orange when any always-block sites are active */
 .shield-btn.always-on { color: #fc9d67; }
 
+/* Edit presets icon button (lives in the preset-row) */
+.bp-edit-presets-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.25);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  transition: color 0.15s;
+}
+.bp-edit-presets-btn:hover { color: rgba(255,255,255,0.7); }
+
 /* ── Gate chips (Hard block / Ask me / Password) ────────────────────────── */
 
 .bp-gate-chips {
@@ -611,4 +626,64 @@ body {
   color: #48cfad;
   text-align: right;
   padding-bottom: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Preset editor panel
+   ══════════════════════════════════════════════════════════════════════════ */
+
+#preset-editor {
+  display: flex;
+  flex-direction: column;
+  max-height: 560px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  padding-bottom: 12px;
+}
+
+.pe-tabs {
+  display: flex;
+  gap: 3px;
+  margin: 8px 14px 0;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.pe-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 6px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.pe-tab.active { background: #6c63ff; color: white; }
+.pe-tab:hover:not(.active) { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.08); }
+
+.pe-reset-btn {
+  display: block;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.3);
+  font-size: 0.7rem;
+  font-family: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.pe-reset-btn:hover {
+  border-color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.65);
 }

@@ -1,11 +1,11 @@
-import type { AppState, TimerMode, BlockState, BlockGate } from '../shared/types';
+import type { AppState, TimerMode, BlockState, BlockGate, BlockPresets } from '../shared/types';
 import { fmt } from '../shared/utils';
 
 declare function playChime(): void;
 
-const RING_C = 2 * Math.PI * 52; // r=52
+const RING_C = 2 * Math.PI * 52;
 
-const BLOCK_PRESETS: Record<string, string[]> = {
+const DEFAULT_PRESETS: BlockPresets = {
   social: ['instagram.com','facebook.com','twitter.com','x.com','tiktok.com',
            'reddit.com','snapchat.com','pinterest.com','threads.net','linkedin.com','tumblr.com'],
   video:  ['youtube.com','netflix.com','twitch.tv','hulu.com','disneyplus.com','primevideo.com','vimeo.com'],
@@ -18,12 +18,15 @@ const DURATION_PRESETS: Record<string, number[]> = {
   longBreak: [10, 15, 20, 25, 30],
 };
 
-let port:       browser.runtime.Port | null = null;
-let state:      AppState | null             = null;
+let port:      browser.runtime.Port | null = null;
+let state:     AppState | null             = null;
 let blockState: BlockState = {
-  enabled: true, alwaysSites: [], focusSites: [], gate: 'none', bypassPassword: '',
+  enabled: true, alwaysSites: [], focusSites: [],
+  gate: 'none', bypassPassword: '',
+  presets: { ...DEFAULT_PRESETS },
 };
-let isEditing = false;
+let isEditing      = false;
+let currentPreset: keyof BlockPresets = 'social';
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
@@ -36,12 +39,14 @@ function connect() {
         blockState = (msg.state as AppState).blockState ?? blockState;
         render();
         renderBlockPanel();
+        renderPresetEditor();
         updateShield();
         if ((msg as { event?: string }).event === 'timerComplete') playChime();
         break;
       case 'blockStateUpdate':
         blockState = msg.blockState as BlockState;
         renderBlockPanel();
+        renderPresetEditor();
         updateShield();
         break;
     }
@@ -156,13 +161,18 @@ function updateShield() {
   document.getElementById('shield-btn')!.classList.toggle('always-on', hasAlways);
 }
 
-function renderSiteList(listId: string, sites: string[], onRemove: (site: string) => void) {
+function renderSiteList(
+  listId: string,
+  sites: string[],
+  onRemove: (site: string) => void,
+  emptyText = 'No sites.'
+) {
   const list = document.getElementById(listId) as HTMLElement;
   list.innerHTML = '';
   if (!sites.length) {
     const empty = document.createElement('div');
     empty.className = 'bp-empty';
-    empty.textContent = 'No sites.';
+    empty.textContent = emptyText;
     list.appendChild(empty);
     return;
   }
@@ -190,34 +200,34 @@ function renderBlockPanel() {
   );
   (document.getElementById('bp-pw-row') as HTMLElement).classList.toggle('hidden', blockState.gate !== 'password');
 
-  // Preset states for both lists
+  const presets = blockState.presets ?? DEFAULT_PRESETS;
+
+  // Preset chip states (both lists)
   document.querySelectorAll('.bp-preset').forEach((el) => {
-    const key    = (el as HTMLElement).dataset.preset!;
+    const key    = (el as HTMLElement).dataset.preset as keyof BlockPresets;
     const isList = (el as HTMLElement).dataset.list as 'always' | 'focus';
-    const preset = BLOCK_PRESETS[key];
-    if (!preset) return;
-    const sites = isList === 'always' ? blockState.alwaysSites : blockState.focusSites;
-    const n = preset.filter((s) => sites.includes(s)).length;
-    (el as HTMLElement).classList.toggle('all-on',  n === preset.length);
+    const preset = presets[key] ?? [];
+    const sites  = isList === 'always' ? blockState.alwaysSites : blockState.focusSites;
+    const n      = preset.filter((s) => sites.includes(s)).length;
+    (el as HTMLElement).classList.toggle('all-on',  n === preset.length && preset.length > 0);
     (el as HTMLElement).classList.toggle('some-on', n > 0 && n < preset.length);
   });
 
-  // Always block list
+  // Always list
   renderSiteList('bp-always-list', blockState.alwaysSites, (site) =>
     send({ type: 'setAlwaysSites', sites: blockState.alwaysSites.filter((s) => s !== site) })
   );
 
-  // Focus block list
+  // Focus list
   renderSiteList('bp-focus-list', blockState.focusSites, (site) =>
     send({ type: 'setFocusSites', sites: blockState.focusSites.filter((s) => s !== site) })
   );
 }
 
-function togglePreset(key: string, list: 'always' | 'focus') {
-  const preset = BLOCK_PRESETS[key];
-  if (!preset) return;
+function togglePreset(key: keyof BlockPresets, list: 'always' | 'focus') {
+  const preset  = (blockState.presets ?? DEFAULT_PRESETS)[key] ?? [];
   const current = list === 'always' ? blockState.alwaysSites : blockState.focusSites;
-  const allOn   = preset.every((s) => current.includes(s));
+  const allOn   = preset.length > 0 && preset.every((s) => current.includes(s));
   let next = [...current];
   if (allOn) next = next.filter((s) => !preset.includes(s));
   else preset.forEach((s) => { if (!next.includes(s)) next.push(s); });
@@ -234,18 +244,50 @@ function addSite(raw: string, list: 'always' | 'focus'): boolean {
   return true;
 }
 
+// ── Preset editor ─────────────────────────────────────────────────────────────
+
+function renderPresetEditor() {
+  // Keep tabs in sync
+  document.querySelectorAll('.pe-tab').forEach((el) =>
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.pt === currentPreset)
+  );
+
+  const presets = blockState.presets ?? DEFAULT_PRESETS;
+  const sites   = presets[currentPreset] ?? [];
+
+  renderSiteList('pe-site-list', sites, (site) => {
+    const updated = { ...presets, [currentPreset]: presets[currentPreset].filter((s) => s !== site) };
+    send({ type: 'setPresets', presets: updated });
+  }, 'No sites in this preset.');
+}
+
+function addToPreset(raw: string): boolean {
+  const domain = raw.trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split('?')[0];
+  if (!domain) return false;
+  const presets = blockState.presets ?? DEFAULT_PRESETS;
+  const current = presets[currentPreset] ?? [];
+  if (current.includes(domain)) return false;
+  send({ type: 'setPresets', presets: { ...presets, [currentPreset]: [...current, domain] } });
+  return true;
+}
+
+// ── Panel navigation ──────────────────────────────────────────────────────────
+
+function showPanel(id: 'timer-view' | 'block-panel' | 'preset-editor') {
+  for (const panelId of ['timer-view', 'block-panel', 'preset-editor']) {
+    document.getElementById(panelId)!.classList.toggle('hidden', panelId !== id);
+  }
+}
+
 // ── Event wiring ──────────────────────────────────────────────────────────────
 
 function wire() {
-  // Shield / back
-  document.getElementById('shield-btn')!.addEventListener('click', () => {
-    document.getElementById('timer-view')!.classList.add('hidden');
-    document.getElementById('block-panel')!.classList.remove('hidden');
-  });
-  document.getElementById('block-back-btn')!.addEventListener('click', () => {
-    document.getElementById('block-panel')!.classList.add('hidden');
-    document.getElementById('timer-view')!.classList.remove('hidden');
-  });
+  // Navigation
+  document.getElementById('shield-btn')!.addEventListener('click',      () => showPanel('block-panel'));
+  document.getElementById('block-back-btn')!.addEventListener('click',  () => showPanel('timer-view'));
+  document.getElementById('bp-edit-presets-btn')!.addEventListener('click', () => showPanel('preset-editor'));
+  document.getElementById('preset-back-btn')!.addEventListener('click', () => showPanel('block-panel'));
 
   // Timer controls
   document.getElementById('time-text')!.addEventListener('click', enterEditMode);
@@ -296,13 +338,14 @@ function wire() {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('bp-pw-save')!.click(); }
   });
 
-  // Presets (both lists)
+  // Preset chips (toggle all in/out of a list)
   document.querySelectorAll('.bp-preset').forEach((el) =>
-    el.addEventListener('click', () => {
-      const list   = (el as HTMLElement).dataset.list   as 'always' | 'focus';
-      const preset = (el as HTMLElement).dataset.preset as string;
-      togglePreset(preset, list);
-    })
+    el.addEventListener('click', () =>
+      togglePreset(
+        (el as HTMLElement).dataset.preset as keyof BlockPresets,
+        (el as HTMLElement).dataset.list   as 'always' | 'focus'
+      )
+    )
   );
 
   // Add site — always
@@ -327,6 +370,32 @@ function wire() {
     e.preventDefault();
     const inp = e.target as HTMLInputElement;
     if (addSite(inp.value, 'focus')) inp.value = '';
+  });
+
+  // Preset editor — category tabs
+  document.querySelectorAll('.pe-tab').forEach((el) =>
+    el.addEventListener('click', () => {
+      currentPreset = (el as HTMLElement).dataset.pt as keyof BlockPresets;
+      renderPresetEditor();
+    })
+  );
+
+  // Preset editor — add site
+  document.getElementById('pe-add-btn')!.addEventListener('click', () => {
+    const inp = document.getElementById('pe-add-input') as HTMLInputElement;
+    if (addToPreset(inp.value)) inp.value = '';
+  });
+  (document.getElementById('pe-add-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const inp = e.target as HTMLInputElement;
+    if (addToPreset(inp.value)) inp.value = '';
+  });
+
+  // Preset editor — reset to defaults
+  document.getElementById('pe-reset-btn')!.addEventListener('click', () => {
+    const presets = blockState.presets ?? DEFAULT_PRESETS;
+    send({ type: 'setPresets', presets: { ...presets, [currentPreset]: [...DEFAULT_PRESETS[currentPreset]] } });
   });
 
   // Settings link

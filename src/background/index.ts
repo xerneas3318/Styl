@@ -1,5 +1,5 @@
 import { Storage } from '../shared/storage';
-import type { AppState, AppSettings, TimerMode, BlockGate, BgMessage } from '../shared/types';
+import type { AppState, AppSettings, TimerMode, BlockGate, BlockPresets, BgMessage } from '../shared/types';
 
 import {
   defaultTimerState, getTimeRemaining,
@@ -8,9 +8,20 @@ import {
   ALARM_COMPLETE, ALARM_KEEPALIVE,
 } from './timer';
 
+const DEFAULT_PRESETS: BlockPresets = {
+  social: ['instagram.com','facebook.com','twitter.com','x.com','tiktok.com',
+           'reddit.com','snapchat.com','pinterest.com','threads.net','linkedin.com','tumblr.com'],
+  video:  ['youtube.com','netflix.com','twitch.tv','hulu.com','disneyplus.com','primevideo.com','vimeo.com'],
+  news:   ['cnn.com','bbc.com','nytimes.com','buzzfeed.com','theguardian.com','huffpost.com','dailymail.co.uk'],
+};
+
 let appState: AppState = {
   timer:      defaultTimerState(),
-  blockState: { enabled: true, alwaysSites: [], focusSites: [], gate: 'none', bypassPassword: '' },
+  blockState: {
+    enabled: true, alwaysSites: [], focusSites: [],
+    gate: 'none', bypassPassword: '',
+    presets: { ...DEFAULT_PRESETS },
+  },
 };
 
 let settings: AppSettings = {
@@ -19,8 +30,7 @@ let settings: AppSettings = {
   longBreakDuration: 15 * 60,
 };
 
-// Temporary per-site bypass: site → expiry timestamp (ms)
-// Set when the user successfully passes the gate; allows one navigation through.
+// Per-site temporary bypass: site → expiry timestamp (ms)
 const tempBypass = new Map<string, number>();
 
 const ports = new Set<browser.runtime.Port>();
@@ -35,7 +45,7 @@ const ports = new Set<browser.runtime.Port>();
     appState = savedState as AppState;
     const bs = appState.blockState as Record<string, unknown>;
 
-    // Migrate old format that had a single `sites` array
+    // Migrate old single-sites format
     if (!bs.alwaysSites && !bs.focusSites) {
       appState.blockState.focusSites  = (bs.sites as string[] | undefined) ?? [];
       appState.blockState.alwaysSites = [];
@@ -44,6 +54,7 @@ const ports = new Set<browser.runtime.Port>();
     if (!appState.blockState.focusSites)  appState.blockState.focusSites  = [];
     if (!appState.blockState.gate)                        appState.blockState.gate = 'none';
     if (appState.blockState.bypassPassword === undefined) appState.blockState.bypassPassword = '';
+    if (!appState.blockState.presets) appState.blockState.presets = { ...DEFAULT_PRESETS };
 
     if (appState.timer.isRunning && appState.timer.startTime !== null) {
       const remaining = getTimeRemaining(appState.timer);
@@ -119,7 +130,6 @@ browser.runtime.onMessage.addListener(
       return false;
     }
     if (msg.type === 'requestBypass') {
-      // Grant a 5-second window for the bypassed site to load without being intercepted
       if (msg.site) tempBypass.set(msg.site, Date.now() + 5000);
       sendResponse({ ok: true });
       return false;
@@ -170,6 +180,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
       if (msg.enabled) redirectBlockedTabs();
+      else             unblockFreedTabs();
       break;
 
     case 'setAlwaysSites':
@@ -177,12 +188,14 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
       redirectBlockedTabs();
+      unblockFreedTabs();
       break;
 
     case 'setFocusSites':
       appState.blockState.focusSites = msg.sites;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      unblockFreedTabs();
       break;
 
     case 'setBlockGate':
@@ -195,36 +208,51 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
       break;
+
+    case 'setPresets':
+      appState.blockState.presets = msg.presets as BlockPresets;
+      await persistState();
+      broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      break;
   }
 }
 
-// Returns whether the given host should be blocked right now,
-// and if so, which mode ('always' | 'focus') — used to inform the blocked page.
-function getBlockInfo(host: string): { blocked: boolean; bm: 'always' | 'focus' } | null {
+// Check if a host is permanently blocked (ignores tempBypass — used for unblock decisions).
+function isPermBlocked(host: string): boolean {
+  const { enabled, alwaysSites, focusSites } = appState.blockState;
+  if (!enabled) return false;
+  if (alwaysSites.some((s) => host === s || host.endsWith('.' + s))) return true;
+  if (appState.timer.isRunning && appState.timer.mode === 'focus') {
+    return focusSites.some((s) => host === s || host.endsWith('.' + s));
+  }
+  return false;
+}
+
+// For webRequest: also checks tempBypass.
+function getBlockInfo(host: string): { bm: 'always' | 'focus' } | null {
   const { enabled, alwaysSites, focusSites } = appState.blockState;
   if (!enabled) return null;
 
-  // Check temporary bypass first
   const exp = tempBypass.get(host);
   if (exp !== undefined) {
-    if (Date.now() < exp) return null; // bypass still valid
+    if (Date.now() < exp) return null;
     tempBypass.delete(host);
   }
 
   if (alwaysSites.some((s) => host === s || host.endsWith('.' + s))) {
-    return { blocked: true, bm: 'always' };
+    return { bm: 'always' };
   }
   if (appState.timer.isRunning && appState.timer.mode === 'focus') {
     if (focusSites.some((s) => host === s || host.endsWith('.' + s))) {
-      return { blocked: true, bm: 'focus' };
+      return { bm: 'focus' };
     }
   }
   return null;
 }
 
+// Redirect currently-open tabs to the blocked page when sites become blocked.
 async function redirectBlockedTabs(): Promise<void> {
-  const { enabled } = appState.blockState;
-  if (!enabled) return;
+  if (!appState.blockState.enabled) return;
   const { gate } = appState.blockState;
 
   const tabs = await browser.tabs.query({});
@@ -242,6 +270,28 @@ async function redirectBlockedTabs(): Promise<void> {
         + '&gate=' + gate
         + '&bm='   + info.bm;
       browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {});
+    }
+  }
+}
+
+// Navigate blocked-page tabs back to their original site when a site is unblocked.
+async function unblockFreedTabs(): Promise<void> {
+  const blockedBase = browser.runtime.getURL('blocked/blocked.html');
+  const tabs = await browser.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.url || !tab.id) continue;
+    if (!tab.url.startsWith(blockedBase)) continue;
+
+    let params: URLSearchParams;
+    try { params = new URL(tab.url).searchParams; }
+    catch { continue; }
+
+    const site = params.get('site');
+    const from = params.get('from');
+    if (!site || !from) continue;
+
+    if (!isPermBlocked(site)) {
+      browser.tabs.update(tab.id, { url: from }).catch(() => {});
     }
   }
 }
