@@ -160,7 +160,7 @@
   // src/background/index.ts
   var appState = {
     timer: defaultTimerState(),
-    blockState: { enabled: true, sites: [] }
+    blockState: { enabled: true, sites: [], blockMode: "focus", gate: "none", bypassPassword: "" }
   };
   var settings = {
     focusDuration: 25 * 60,
@@ -175,6 +175,9 @@
     ]);
     if (savedState) {
       appState = savedState;
+      if (!appState.blockState.blockMode) appState.blockState.blockMode = "focus";
+      if (!appState.blockState.gate) appState.blockState.gate = "none";
+      if (appState.blockState.bypassPassword === void 0) appState.blockState.bypassPassword = "";
       if (appState.timer.isRunning && appState.timer.startTime !== null) {
         const remaining = getTimeRemaining(appState.timer);
         if (remaining <= 0) {
@@ -227,6 +230,16 @@
     (msg, _sender, sendResponse) => {
       if (msg.type === "getTimerState") {
         sendResponse({ timeRemaining: getTimeRemaining(appState.timer), mode: appState.timer.mode });
+        return false;
+      }
+      if (msg.type === "getBlockState") {
+        sendResponse({ blockState: appState.blockState });
+        return false;
+      }
+      if (msg.type === "checkBypassPassword") {
+        const pw = appState.blockState.bypassPassword;
+        sendResponse({ allowed: pw !== "" && msg.password === pw });
+        return false;
       }
       return false;
     }
@@ -278,18 +291,40 @@
         appState.blockState.enabled = msg.enabled;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        if (msg.enabled && appState.blockState.blockMode === "always") redirectBlockedTabs();
         break;
       case "setBlockedSites":
         appState.blockState.sites = msg.sites;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
         break;
+      case "setBlockMode":
+        appState.blockState.blockMode = msg.mode;
+        await persistState();
+        broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        if (msg.mode === "always") redirectBlockedTabs();
+        break;
+      case "setBlockGate":
+        appState.blockState.gate = msg.gate;
+        if (msg.gate === "password" && msg.password !== void 0) {
+          appState.blockState.bypassPassword = msg.password;
+        } else if (msg.gate !== "password") {
+          appState.blockState.bypassPassword = "";
+        }
+        await persistState();
+        broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        break;
     }
   }
+  function shouldBlockNow() {
+    const { enabled, sites, blockMode } = appState.blockState;
+    if (!enabled || !sites.length) return false;
+    if (blockMode === "always") return true;
+    return appState.timer.isRunning && appState.timer.mode === "focus";
+  }
   async function redirectBlockedTabs() {
-    const { enabled, sites } = appState.blockState;
-    if (!enabled || !sites.length) return;
-    if (!appState.timer.isRunning || appState.timer.mode !== "focus") return;
+    if (!shouldBlockNow()) return;
+    const { sites, gate } = appState.blockState;
     const tabs = await browser.tabs.query({});
     for (const tab of tabs) {
       if (!tab.url || !tab.id) continue;
@@ -302,9 +337,8 @@
       }
       const isBlocked = sites.some((s) => host === s || host.endsWith("." + s));
       if (isBlocked) {
-        browser.tabs.update(tab.id, {
-          url: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host)
-        }).catch(() => {
+        const blockedUrl = browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(tab.url) + "&gate=" + gate;
+        browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {
         });
       }
     }
@@ -314,19 +348,18 @@
   }
   browser.webRequest.onBeforeRequest.addListener(
     (details) => {
-      const { enabled, sites } = appState.blockState;
-      if (!enabled || !sites.length) return {};
-      if (!appState.timer.isRunning || appState.timer.mode !== "focus") return {};
+      if (!shouldBlockNow()) return {};
       let host;
       try {
         host = new URL(details.url).hostname.replace(/^www\./, "");
       } catch {
         return {};
       }
+      const { sites, gate } = appState.blockState;
       const blocked = sites.some((s) => host === s || host.endsWith("." + s));
       if (!blocked) return {};
       return {
-        redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host)
+        redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(details.url) + "&gate=" + gate
       };
     },
     { urls: ["<all_urls>"], types: ["main_frame"] },

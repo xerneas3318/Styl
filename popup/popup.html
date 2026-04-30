@@ -10,7 +10,7 @@
   <header class="header">
     <span class="brand">Styl</span>
     <div class="header-actions">
-      <button class="shield-btn" id="shield-btn" title="Block sites during focus">
+      <button class="shield-btn" id="shield-btn" title="Block sites">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
@@ -91,10 +91,11 @@
       <span class="bp-title">Block Sites</span>
     </div>
 
+    <!-- When to block -->
     <div class="bp-toggle-row">
       <div>
-        <div class="bp-toggle-label">Block during focus</div>
-        <div class="bp-toggle-sub">Only active while timer is running</div>
+        <div class="bp-toggle-label">Enable blocking</div>
+        <div class="bp-toggle-sub" id="block-enabled-sub">Only active during focus timer</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="block-enabled" checked>
@@ -102,6 +103,33 @@
       </label>
     </div>
 
+    <!-- Block mode: During focus / Always -->
+    <div class="bp-mode-row" id="bp-mode-row">
+      <div class="bp-mode-label">When to block</div>
+      <div class="bp-mode-chips">
+        <button class="bp-mode-chip active" id="bm-focus" data-bm="focus">During focus</button>
+        <button class="bp-mode-chip" id="bm-always" data-bm="always">Always</button>
+      </div>
+    </div>
+
+    <!-- Gate: how to handle blocked sites -->
+    <div class="bp-section">
+      <div class="bp-section-label">Bypass option</div>
+      <div class="bp-gate-chips">
+        <button class="bp-gate-chip active" data-gate="none">Hard block</button>
+        <button class="bp-gate-chip" data-gate="confirm">Ask me</button>
+        <button class="bp-gate-chip" data-gate="password">Password</button>
+      </div>
+      <!-- Password input — shown when gate=password -->
+      <div class="bp-pw-row hidden" id="bp-pw-row">
+        <input class="bp-pw-input" id="bp-pw-input" type="password"
+               placeholder="Set bypass password" autocomplete="new-password">
+        <button class="bp-pw-save" id="bp-pw-save">Set</button>
+      </div>
+      <div class="bp-pw-saved hidden" id="bp-pw-saved">Password saved.</div>
+    </div>
+
+    <!-- Presets -->
     <div class="bp-section">
       <div class="bp-section-label">Presets</div>
       <div class="bp-preset-row">

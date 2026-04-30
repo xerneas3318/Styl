@@ -20,6 +20,8 @@ body {
   50%       { background-position: 100% 50%; }
 }
 
+.hidden { display: none !important; }
+
 .page {
   display: flex;
   flex-direction: column;
@@ -28,6 +30,7 @@ body {
   text-align: center;
   padding: 0 24px;
   max-width: 480px;
+  width: 100%;
 }
 
 .shield-icon {
@@ -64,12 +67,6 @@ body {
   margin-top: -8px;
 }
 
-.sub {
-  font-size: 0.85rem;
-  opacity: 0.4;
-  font-style: italic;
-}
-
 .timer-row {
   display: flex;
   align-items: baseline;
@@ -93,7 +90,106 @@ body {
   opacity: 0.5;
 }
 
-.back-btn {
+/* ── Gates ──────────────────────────────────────────────────────────────── */
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.gate-label {
+  font-size: 0.88rem;
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.gate-btns {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.gate-btn {
+  font-family: inherit;
+  border-radius: 50px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition: all 0.18s;
+  border: none;
+  padding: 10px 28px;
+  width: 100%;
+  max-width: 240px;
+}
+
+.gate-btn.primary {
+  background: rgba(108,99,255,0.7);
+  border: 1px solid rgba(108,99,255,0.9);
+  color: white;
+  font-weight: 500;
+}
+.gate-btn.primary:hover {
+  background: rgba(108,99,255,0.9);
+  transform: translateY(-1px);
+}
+
+.gate-btn.secondary {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.55);
+}
+.gate-btn.secondary:hover {
+  background: rgba(255,255,255,0.13);
+  color: white;
+  transform: translateY(-1px);
+}
+
+/* Password gate */
+.pw-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.pw-input {
+  flex: 1;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  color: white;
+  font-size: 0.9rem;
+  font-family: inherit;
+  padding: 9px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+.pw-input::placeholder { color: rgba(255,255,255,0.3); }
+.pw-input:focus { border-color: rgba(108,99,255,0.7); }
+
+.pw-gate .gate-btn.primary {
+  padding: 9px 18px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  width: auto;
+  max-width: none;
+}
+
+.pw-error {
+  font-size: 0.8rem;
+  color: #ff8080;
+  opacity: 0.85;
+}
+
+/* Hard-block go-back button */
+.hard-back {
   margin-top: 8px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
@@ -105,7 +201,7 @@ body {
   cursor: pointer;
   transition: all 0.18s;
 }
-.back-btn:hover {
+.hard-back:hover {
   background: rgba(255,255,255,0.15);
   color: white;
   transform: translateY(-1px);

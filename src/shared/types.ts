@@ -1,4 +1,6 @@
 export type TimerMode = 'focus' | 'break' | 'longBreak';
+export type BlockMode = 'focus' | 'always';
+export type BlockGate = 'none' | 'confirm' | 'password';
 
 export interface TimerState {
   mode:                 TimerMode;
@@ -13,8 +15,11 @@ export interface TimerState {
 }
 
 export interface BlockState {
-  enabled: boolean;
-  sites:   string[];
+  enabled:          boolean;
+  sites:            string[];
+  blockMode:        BlockMode;  // 'focus' = only during focus timer, 'always' = all the time
+  gate:             BlockGate;  // 'none' = hard block, 'confirm' = are you sure, 'password' = pin
+  bypassPassword:   string;     // empty when gate !== 'password'
 }
 
 export interface AppState {
@@ -38,7 +43,12 @@ export type BgMessage =
   | { type: 'timerAddMinute' }
   | { type: 'timerUpdateSettings'; focusDuration?: number; breakDuration?: number; longBreakDuration?: number }
   | { type: 'setBlockEnabled';     enabled: boolean }
-  | { type: 'setBlockedSites';     sites: string[] };
+  | { type: 'setBlockedSites';     sites: string[] }
+  | { type: 'setBlockMode';        mode: BlockMode }
+  | { type: 'setBlockGate';        gate: BlockGate; password?: string }
+  | { type: 'checkBypassPassword'; password: string }
+  | { type: 'getTimerState' }
+  | { type: 'getBlockState' };
 
 export type UiMessage =
   | { type: 'stateUpdate'; state: AppState; event?: string }

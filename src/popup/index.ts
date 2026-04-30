@@ -1,4 +1,4 @@
-import type { AppState, TimerMode, BlockState, AIResponse } from '../shared/types';
+import type { AppState, TimerMode, BlockState, BlockMode, BlockGate } from '../shared/types';
 import { fmt } from '../shared/utils';
 
 declare function playChime(): void;
@@ -29,7 +29,7 @@ const DURATION_PRESETS: Record<string, number[]> = {
 
 let port:       browser.runtime.Port | null = null;
 let state:      AppState | null             = null;
-let blockState: BlockState                  = { enabled: true, sites: [] };
+let blockState: BlockState                  = { enabled: true, sites: [], blockMode: 'focus', gate: 'none', bypassPassword: '' };
 let isEditing   = false;
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -50,15 +50,6 @@ function connect() {
         blockState = msg.blockState as BlockState;
         renderBlockPanel();
         updateShield();
-        break;
-      case 'aiThinking':
-        setStatus('Thinking…');
-        break;
-      case 'aiComplete':
-        setStatus(msg.message as string);
-        break;
-      case 'error':
-        setStatus(`⚠ ${msg.message as string}`);
         break;
     }
   });
@@ -167,11 +158,32 @@ function buildDurationPresets(mode: TimerMode, current: number) {
 function updateShield() {
   const active = blockState.enabled && blockState.sites.length > 0;
   document.getElementById('shield-btn')!.classList.toggle('active', active);
+  document.getElementById('shield-btn')!.classList.toggle('always-on', active && blockState.blockMode === 'always');
 }
 
 function renderBlockPanel() {
+  // Enable toggle + subtitle
   (document.getElementById('block-enabled') as HTMLInputElement).checked = blockState.enabled;
+  const sub = document.getElementById('block-enabled-sub') as HTMLElement;
+  sub.textContent = blockState.blockMode === 'always'
+    ? 'Blocking is always active'
+    : 'Only active during focus timer';
 
+  // Block mode chips
+  document.querySelectorAll('.bp-mode-chip').forEach((el) => {
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.bm === blockState.blockMode);
+  });
+
+  // Gate chips
+  document.querySelectorAll('.bp-gate-chip').forEach((el) => {
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.gate === blockState.gate);
+  });
+
+  // Password row visibility
+  const pwRow = document.getElementById('bp-pw-row') as HTMLElement;
+  pwRow.classList.toggle('hidden', blockState.gate !== 'password');
+
+  // Preset states
   document.querySelectorAll('.bp-preset').forEach((el) => {
     const preset = BLOCK_PRESETS[(el as HTMLElement).dataset.preset!];
     if (!preset) return;
@@ -180,6 +192,7 @@ function renderBlockPanel() {
     (el as HTMLElement).classList.toggle('some-on', n > 0 && n < preset.sites.length);
   });
 
+  // Site list
   const list = document.getElementById('bp-site-list') as HTMLElement;
   list.innerHTML = '';
   if (!blockState.sites.length) {
@@ -267,13 +280,49 @@ function wire() {
   document.getElementById('skip-btn')!.addEventListener('click',  () => send({ type: 'timerSkip' }));
   document.getElementById('add-min-btn')!.addEventListener('click', () => send({ type: 'timerAddMinute' }));
 
-  // Block panel
+  // Block panel — enable toggle
   (document.getElementById('block-enabled') as HTMLInputElement).addEventListener('change', (e) =>
     send({ type: 'setBlockEnabled', enabled: (e.target as HTMLInputElement).checked })
   );
+
+  // Block mode chips (During focus / Always)
+  document.querySelectorAll('.bp-mode-chip').forEach((el) =>
+    el.addEventListener('click', () =>
+      send({ type: 'setBlockMode', mode: (el as HTMLElement).dataset.bm as BlockMode })
+    )
+  );
+
+  // Gate chips (Hard block / Ask me / Password)
+  document.querySelectorAll('.bp-gate-chip').forEach((el) =>
+    el.addEventListener('click', () => {
+      const gate = (el as HTMLElement).dataset.gate as BlockGate;
+      send({ type: 'setBlockGate', gate });
+    })
+  );
+
+  // Password set button
+  document.getElementById('bp-pw-save')!.addEventListener('click', () => {
+    const inp = document.getElementById('bp-pw-input') as HTMLInputElement;
+    const pw  = inp.value.trim();
+    if (!pw) return;
+    send({ type: 'setBlockGate', gate: 'password', password: pw });
+    inp.value = '';
+    const saved = document.getElementById('bp-pw-saved') as HTMLElement;
+    saved.classList.remove('hidden');
+    setTimeout(() => saved.classList.add('hidden'), 2000);
+  });
+  (document.getElementById('bp-pw-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    document.getElementById('bp-pw-save')!.click();
+  });
+
+  // Presets
   document.querySelectorAll('.bp-preset').forEach((el) =>
     el.addEventListener('click', () => togglePreset((el as HTMLElement).dataset.preset!))
   );
+
+  // Add site
   document.getElementById('bp-add-btn')!.addEventListener('click', () => {
     const inp = document.getElementById('bp-add-input') as HTMLInputElement;
     if (addCustomSite(inp.value)) inp.value = '';

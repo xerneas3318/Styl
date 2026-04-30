@@ -42,7 +42,7 @@
   };
   var port = null;
   var state = null;
-  var blockState = { enabled: true, sites: [] };
+  var blockState = { enabled: true, sites: [], blockMode: "focus", gate: "none", bypassPassword: "" };
   var isEditing = false;
   function connect() {
     port = browser.runtime.connect({ name: "popup" });
@@ -60,15 +60,6 @@
           blockState = msg.blockState;
           renderBlockPanel();
           updateShield();
-          break;
-        case "aiThinking":
-          setStatus("Thinking\u2026");
-          break;
-        case "aiComplete":
-          setStatus(msg.message);
-          break;
-        case "error":
-          setStatus(`\u26A0 ${msg.message}`);
           break;
       }
     });
@@ -160,9 +151,20 @@
   function updateShield() {
     const active = blockState.enabled && blockState.sites.length > 0;
     document.getElementById("shield-btn").classList.toggle("active", active);
+    document.getElementById("shield-btn").classList.toggle("always-on", active && blockState.blockMode === "always");
   }
   function renderBlockPanel() {
     document.getElementById("block-enabled").checked = blockState.enabled;
+    const sub = document.getElementById("block-enabled-sub");
+    sub.textContent = blockState.blockMode === "always" ? "Blocking is always active" : "Only active during focus timer";
+    document.querySelectorAll(".bp-mode-chip").forEach((el) => {
+      el.classList.toggle("active", el.dataset.bm === blockState.blockMode);
+    });
+    document.querySelectorAll(".bp-gate-chip").forEach((el) => {
+      el.classList.toggle("active", el.dataset.gate === blockState.gate);
+    });
+    const pwRow = document.getElementById("bp-pw-row");
+    pwRow.classList.toggle("hidden", blockState.gate !== "password");
     document.querySelectorAll(".bp-preset").forEach((el) => {
       const preset = BLOCK_PRESETS[el.dataset.preset];
       if (!preset) return;
@@ -213,13 +215,6 @@
     send({ type: "setBlockedSites", sites: [...blockState.sites, domain] });
     return true;
   }
-  function setStatus(msg) {
-    const el = document.getElementById("ai-status");
-    if (!el) return;
-    el.textContent = msg;
-    el.classList.remove("hidden");
-    setTimeout(() => el.classList.add("hidden"), 5e3);
-  }
   function wire() {
     document.getElementById("shield-btn").addEventListener("click", () => {
       document.getElementById("timer-view").classList.add("hidden");
@@ -260,6 +255,33 @@
       "change",
       (e) => send({ type: "setBlockEnabled", enabled: e.target.checked })
     );
+    document.querySelectorAll(".bp-mode-chip").forEach(
+      (el) => el.addEventListener(
+        "click",
+        () => send({ type: "setBlockMode", mode: el.dataset.bm })
+      )
+    );
+    document.querySelectorAll(".bp-gate-chip").forEach(
+      (el) => el.addEventListener("click", () => {
+        const gate = el.dataset.gate;
+        send({ type: "setBlockGate", gate });
+      })
+    );
+    document.getElementById("bp-pw-save").addEventListener("click", () => {
+      const inp = document.getElementById("bp-pw-input");
+      const pw = inp.value.trim();
+      if (!pw) return;
+      send({ type: "setBlockGate", gate: "password", password: pw });
+      inp.value = "";
+      const saved = document.getElementById("bp-pw-saved");
+      saved.classList.remove("hidden");
+      setTimeout(() => saved.classList.add("hidden"), 2e3);
+    });
+    document.getElementById("bp-pw-input").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      document.getElementById("bp-pw-save").click();
+    });
     document.querySelectorAll(".bp-preset").forEach(
       (el) => el.addEventListener("click", () => togglePreset(el.dataset.preset))
     );

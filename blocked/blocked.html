@@ -15,16 +15,35 @@
     </div>
 
     <div class="site-name" id="site-name">This site</div>
-    <div class="headline">is blocked during focus.</div>
-
-    <div class="sub">Stay on track — you're doing great.</div>
+    <div class="headline" id="headline">is blocked.</div>
 
     <div class="timer-row" id="timer-row" style="display:none">
       <span class="timer-val" id="timer-val"></span>
       <span class="timer-label">left in your session</span>
     </div>
 
-    <button class="back-btn" id="back-btn">← Go back</button>
+    <!-- Confirm gate: show when gate=confirm -->
+    <div class="gate confirm-gate hidden" id="confirm-gate">
+      <p class="gate-label">Do you really need to go here?</p>
+      <div class="gate-btns">
+        <button class="gate-btn primary" id="visit-btn">Yes, take me there</button>
+        <button class="gate-btn secondary" id="back-btn-confirm">← Stay focused</button>
+      </div>
+    </div>
+
+    <!-- Password gate: show when gate=password -->
+    <div class="gate pw-gate hidden" id="pw-gate">
+      <p class="gate-label">Enter your bypass password</p>
+      <div class="pw-row">
+        <input class="pw-input" type="password" id="pw-input" placeholder="Password" autocomplete="off">
+        <button class="gate-btn primary" id="pw-unlock-btn">Unlock</button>
+      </div>
+      <div class="pw-error hidden" id="pw-error">Wrong password — try again.</div>
+      <button class="gate-btn secondary" id="back-btn-pw">← Stay focused</button>
+    </div>
+
+    <!-- Hard block (gate=none): just go back -->
+    <button class="back-btn hard-back hidden" id="back-btn-hard">← Go back</button>
   </div>
 
   <script src="blocked.js"></script>
