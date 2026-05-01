@@ -33,10 +33,16 @@ export interface AppState {
   blockState: BlockState;
 }
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+export type FontSize  = 'small' | 'medium' | 'large';
+
 export interface AppSettings {
-  focusDuration:      number;
-  breakDuration:      number;
-  longBreakDuration:  number;
+  focusDuration:     number;
+  breakDuration:     number;
+  longBreakDuration: number;
+  theme:             ThemeMode;
+  fontSize:          FontSize;
+  apiKey:            string;
 }
 
 export type BgMessage =

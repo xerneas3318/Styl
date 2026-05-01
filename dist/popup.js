@@ -7,6 +7,43 @@
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
+  // src/shared/storage.ts
+  var KEY_STATE = "styl_state";
+  var KEY_SETTINGS = "styl_settings";
+  async function get(key) {
+    const result = await browser.storage.local.get(key);
+    return result[key] ?? null;
+  }
+  function set(key, value) {
+    return browser.storage.local.set({ [key]: value });
+  }
+  var Storage = {
+    getState: () => get(KEY_STATE),
+    setState: (s) => set(KEY_STATE, s),
+    getSettings: () => get(KEY_SETTINGS),
+    setSettings: (s) => set(KEY_SETTINGS, s)
+  };
+
+  // src/shared/theme.ts
+  function applyThemeFromSettings(s) {
+    const theme = s.theme ?? "dark";
+    const fontSize = s.fontSize ?? "medium";
+    const html = document.documentElement;
+    const isLight = theme === "light" || theme === "system" && window.matchMedia("(prefers-color-scheme: light)").matches;
+    html.classList.toggle("theme-light", isLight);
+    html.classList.remove("size-small", "size-medium", "size-large");
+    html.classList.add(`size-${fontSize}`);
+  }
+  async function applyTheme() {
+    const s = await Storage.getSettings();
+    applyThemeFromSettings(s ?? {});
+    if (s?.theme === "system") {
+      window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+        applyThemeFromSettings(s);
+      });
+    }
+  }
+
   // src/popup/index.ts
   var RING_C = 2 * Math.PI * 52;
   var DEFAULT_PRESETS = {
@@ -43,6 +80,35 @@
   };
   var isEditing = false;
   var currentPreset = "social";
+  var timerTick = null;
+  function liveRemaining() {
+    const t = state?.timer;
+    if (!t) return 0;
+    if (!t.isRunning || t.startTime === null) return Math.max(0, t.pausedTimeRemaining);
+    const elapsed = Math.floor((Date.now() - t.startTime) / 1e3);
+    return Math.max(0, t.pausedTimeRemaining - elapsed);
+  }
+  function tickUI() {
+    const remaining = liveRemaining();
+    if (!isEditing) {
+      const el = document.getElementById("time-text");
+      if (el) el.textContent = fmt(remaining);
+    }
+    const total = state?.timer.sessionTotal ?? 1;
+    const offset = (1 - Math.min(1, Math.max(0, total > 0 ? remaining / total : 1))) * RING_C;
+    const ring = document.getElementById("progress-ring");
+    if (ring) ring.style.strokeDashoffset = String(offset);
+  }
+  function syncTimerTick() {
+    if (state?.timer.isRunning) {
+      if (!timerTick) timerTick = setInterval(tickUI, 1e3);
+    } else {
+      if (timerTick) {
+        clearInterval(timerTick);
+        timerTick = null;
+      }
+    }
+  }
   function connect() {
     port = browser.runtime.connect({ name: "popup" });
     port.onMessage.addListener((msg) => {
@@ -79,9 +145,9 @@
       (el) => el.classList.toggle("active", el.dataset.mode === t.mode)
     );
     if (!isEditing) {
-      document.getElementById("time-text").textContent = fmt(t.pausedTimeRemaining);
+      document.getElementById("time-text").textContent = fmt(liveRemaining());
     }
-    const progress = t.sessionTotal > 0 ? t.pausedTimeRemaining / t.sessionTotal : 1;
+    const progress = t.sessionTotal > 0 ? liveRemaining() / t.sessionTotal : 1;
     const offset = (1 - Math.min(1, Math.max(0, progress))) * RING_C;
     const ring = document.getElementById("progress-ring");
     ring.style.strokeDashoffset = String(offset);
@@ -97,6 +163,7 @@
       dots.appendChild(d);
     }
     document.getElementById("sessions-label").textContent = `${t.sessionsCompleted} session${t.sessionsCompleted !== 1 ? "s" : ""} completed`;
+    syncTimerTick();
   }
   function enterEditMode() {
     if (isEditing || !state) return;
@@ -365,5 +432,6 @@
   }
   wire();
   connect();
+  applyTheme();
 })();
 //# sourceMappingURL=popup.js.map

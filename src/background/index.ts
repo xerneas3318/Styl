@@ -28,6 +28,9 @@ let settings: AppSettings = {
   focusDuration:     25 * 60,
   breakDuration:     5  * 60,
   longBreakDuration: 15 * 60,
+  theme:             'dark',
+  fontSize:          'medium',
+  apiKey:            '',
 };
 
 // Per-site temporary bypass: site → expiry timestamp (ms)

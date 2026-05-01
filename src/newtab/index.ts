@@ -1,5 +1,6 @@
 import type { AppState, TimerMode } from '../shared/types';
 import { fmt } from '../shared/utils';
+import { applyTheme } from '../shared/theme';
 
 declare function playChime(): void;
 
@@ -312,3 +313,4 @@ connect();
 loadDailyFocus();
 loadQuote();
 initWallpaper();
+applyTheme();

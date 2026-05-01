@@ -7,6 +7,43 @@
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
+  // src/shared/storage.ts
+  var KEY_STATE = "styl_state";
+  var KEY_SETTINGS = "styl_settings";
+  async function get(key) {
+    const result = await browser.storage.local.get(key);
+    return result[key] ?? null;
+  }
+  function set(key, value) {
+    return browser.storage.local.set({ [key]: value });
+  }
+  var Storage = {
+    getState: () => get(KEY_STATE),
+    setState: (s) => set(KEY_STATE, s),
+    getSettings: () => get(KEY_SETTINGS),
+    setSettings: (s) => set(KEY_SETTINGS, s)
+  };
+
+  // src/shared/theme.ts
+  function applyThemeFromSettings(s) {
+    const theme = s.theme ?? "dark";
+    const fontSize = s.fontSize ?? "medium";
+    const html = document.documentElement;
+    const isLight = theme === "light" || theme === "system" && window.matchMedia("(prefers-color-scheme: light)").matches;
+    html.classList.toggle("theme-light", isLight);
+    html.classList.remove("size-small", "size-medium", "size-large");
+    html.classList.add(`size-${fontSize}`);
+  }
+  async function applyTheme() {
+    const s = await Storage.getSettings();
+    applyThemeFromSettings(s ?? {});
+    if (s?.theme === "system") {
+      window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+        applyThemeFromSettings(s);
+      });
+    }
+  }
+
   // src/newtab/index.ts
   var RING_C = 2 * Math.PI * 68;
   var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -326,5 +363,6 @@
   loadDailyFocus();
   loadQuote();
   initWallpaper();
+  applyTheme();
 })();
 //# sourceMappingURL=newtab.js.map

@@ -355,3 +355,125 @@ body.has-wallpaper::before {
   .timer-card { width: 100%; }
   .page { padding: 20px 16px 32px; }
 }
+
+/* ── Font size classes ───────────────────────────────────────────────────────── */
+html.size-small { font-size: 13px; }
+html.size-large { font-size: 17px; }
+
+/* ── Light theme overrides ───────────────────────────────────────────────────── */
+html.theme-light body {
+  color: #1a1830;
+}
+
+html.theme-light body.morning {
+  background: linear-gradient(135deg, #e8e0ff 0%, #d8ccff 40%, #c8b8ff 100%);
+}
+html.theme-light body.afternoon {
+  background: linear-gradient(135deg, #ddeeff 0%, #c8e0ff 40%, #b0cdff 100%);
+}
+html.theme-light body.evening {
+  background: linear-gradient(135deg, #ffe8f0 0%, #f5d0e8 60%, #eedde8 100%);
+}
+html.theme-light body.night {
+  background: linear-gradient(135deg, #e8eaff 0%, #d8deff 50%, #dde0ff 100%);
+}
+
+html.theme-light .clock {
+  text-shadow: 0 2px 20px rgba(108,99,255,0.2);
+}
+
+html.theme-light .date {
+  color: rgba(0,0,0,0.5);
+}
+
+html.theme-light .greeting {
+  color: rgba(0,0,0,0.38);
+}
+
+html.theme-light .focus-input {
+  border-bottom-color: rgba(0,0,0,0.18);
+  color: rgba(0,0,0,0.75);
+}
+html.theme-light .focus-input::placeholder {
+  color: rgba(0,0,0,0.25);
+}
+
+html.theme-light .timer-card {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(0,0,0,0.08);
+}
+
+html.theme-light .mode-tabs {
+  background: rgba(0,0,0,0.06);
+}
+html.theme-light .mode-tab {
+  color: rgba(0,0,0,0.45);
+}
+html.theme-light .mode-tab:hover:not(.active) {
+  color: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.07);
+}
+
+html.theme-light .ring-bg {
+  stroke: rgba(0,0,0,0.1);
+}
+
+html.theme-light .time-text {
+  color: #1a1830;
+}
+html.theme-light .time-text:hover {
+  border-bottom-color: rgba(0,0,0,0.35);
+}
+
+html.theme-light .add-min-btn {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.5);
+}
+html.theme-light .add-min-btn:hover {
+  background: rgba(0,0,0,0.12);
+  border-color: rgba(0,0,0,0.2);
+  color: #1a1830;
+}
+
+html.theme-light .preset-chip {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .preset-chip:hover {
+  background: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+
+html.theme-light .t-btn {
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .t-btn.icon-btn {
+  background: rgba(0,0,0,0.06);
+}
+html.theme-light .t-btn.icon-btn:hover {
+  background: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+
+html.theme-light .sessions-label {
+  color: rgba(0,0,0,0.35);
+}
+html.theme-light .s-dot {
+  background: rgba(0,0,0,0.15);
+}
+
+html.theme-light .quote {
+  color: rgba(0,0,0,0.3);
+}
+
+html.theme-light .wallpaper-btn {
+  background: rgba(0,0,0,0.08);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.4);
+}
+html.theme-light .wallpaper-btn:hover {
+  background: rgba(0,0,0,0.15);
+  color: rgba(0,0,0,0.7);
+}

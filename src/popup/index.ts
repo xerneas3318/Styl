@@ -1,5 +1,6 @@
 import type { AppState, TimerMode, BlockState, BlockGate, BlockPresets } from '../shared/types';
 import { fmt } from '../shared/utils';
+import { applyTheme } from '../shared/theme';
 
 declare function playChime(): void;
 
@@ -27,6 +28,36 @@ let blockState: BlockState = {
 };
 let isEditing      = false;
 let currentPreset: keyof BlockPresets = 'social';
+
+let timerTick: ReturnType<typeof setInterval> | null = null;
+
+function liveRemaining(): number {
+  const t = state?.timer;
+  if (!t) return 0;
+  if (!t.isRunning || t.startTime === null) return Math.max(0, t.pausedTimeRemaining);
+  const elapsed = Math.floor((Date.now() - t.startTime) / 1000);
+  return Math.max(0, t.pausedTimeRemaining - elapsed);
+}
+
+function tickUI() {
+  const remaining = liveRemaining();
+  if (!isEditing) {
+    const el = document.getElementById('time-text');
+    if (el) el.textContent = fmt(remaining);
+  }
+  const total  = state?.timer.sessionTotal ?? 1;
+  const offset = (1 - Math.min(1, Math.max(0, total > 0 ? remaining / total : 1))) * RING_C;
+  const ring   = document.getElementById('progress-ring') as SVGCircleElement | null;
+  if (ring) ring.style.strokeDashoffset = String(offset);
+}
+
+function syncTimerTick() {
+  if (state?.timer.isRunning) {
+    if (!timerTick) timerTick = setInterval(tickUI, 1000);
+  } else {
+    if (timerTick) { clearInterval(timerTick); timerTick = null; }
+  }
+}
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
@@ -67,10 +98,10 @@ function render() {
   );
 
   if (!isEditing) {
-    (document.getElementById('time-text') as HTMLElement).textContent = fmt(t.pausedTimeRemaining);
+    (document.getElementById('time-text') as HTMLElement).textContent = fmt(liveRemaining());
   }
 
-  const progress = t.sessionTotal > 0 ? t.pausedTimeRemaining / t.sessionTotal : 1;
+  const progress = t.sessionTotal > 0 ? liveRemaining() / t.sessionTotal : 1;
   const offset   = (1 - Math.min(1, Math.max(0, progress))) * RING_C;
   const ring     = document.getElementById('progress-ring') as SVGCircleElement;
   ring.style.strokeDashoffset = String(offset);
@@ -92,6 +123,8 @@ function render() {
   }
   (document.getElementById('sessions-label') as HTMLElement).textContent =
     `${t.sessionsCompleted} session${t.sessionsCompleted !== 1 ? 's' : ''} completed`;
+
+  syncTimerTick();
 }
 
 // ── Edit mode ─────────────────────────────────────────────────────────────────
@@ -406,3 +439,4 @@ function wire() {
 
 wire();
 connect();
+applyTheme();

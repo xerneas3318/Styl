@@ -1,9 +1,7 @@
-import type { AppState, AppSettings, Snapshot } from './types';
+import type { AppState, AppSettings } from './types';
 
-const KEY_STATE     = 'styl_state';
-const KEY_SETTINGS  = 'styl_settings';
-const KEY_SNAPSHOTS = 'styl_snapshots';
-const MAX_SNAPSHOTS = 50;
+const KEY_STATE    = 'styl_state';
+const KEY_SETTINGS = 'styl_settings';
 
 async function get<T>(key: string): Promise<T | null> {
   const result = await browser.storage.local.get(key);
@@ -20,16 +18,4 @@ export const Storage = {
 
   getSettings: () => get<AppSettings>(KEY_SETTINGS),
   setSettings: (s: AppSettings) => set(KEY_SETTINGS, s),
-
-  getSnapshots: () =>
-    get<Snapshot[]>(KEY_SNAPSHOTS).then((s) => s ?? []),
-
-  setSnapshots: (s: Snapshot[]) => set(KEY_SNAPSHOTS, s),
-
-  async pushSnapshot(snap: Snapshot): Promise<void> {
-    const snaps = await Storage.getSnapshots();
-    snaps.unshift(snap);
-    if (snaps.length > MAX_SNAPSHOTS) snaps.length = MAX_SNAPSHOTS;
-    await Storage.setSnapshots(snaps);
-  },
 };

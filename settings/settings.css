@@ -91,21 +91,10 @@ body {
   gap: 5px;
   margin-bottom: 14px;
 }
-.field-group.row {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
 
 .field-label {
   font-size: 0.8rem;
   color: rgba(255,255,255,0.7);
-}
-
-.optional {
-  font-size: 0.68rem;
-  color: rgba(255,255,255,0.3);
-  font-weight: 400;
 }
 
 .field-input {
@@ -124,48 +113,11 @@ body {
 .field-input::placeholder { color: rgba(255,255,255,0.22); }
 .field-input:focus { border-color: rgba(108,99,255,0.6); }
 
-.field-select {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
-  color: white;
-  font-size: 0.84rem;
-  font-family: inherit;
-  padding: 8px 11px;
-  outline: none;
-  cursor: pointer;
-  width: 100%;
-}
-
 .field-hint {
   font-size: 0.72rem;
   color: rgba(255,255,255,0.28);
   line-height: 1.4;
 }
-.field-hint.indent { margin-top: -8px; margin-left: 0; margin-bottom: 10px; }
-
-/* ── Toggle ──────────────────────────────────────────────────────────────────── */
-.toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
-.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-.toggle-track {
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.12);
-  border-radius: 20px;
-  cursor: pointer;
-  transition: background 0.25s;
-}
-.toggle input:checked ~ .toggle-track { background: #6c63ff; }
-.toggle-thumb {
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 14px; height: 14px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.25s;
-  pointer-events: none;
-}
-.toggle input:checked ~ .toggle-track .toggle-thumb { transform: translateX(16px); }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
 .btn-primary {
@@ -183,362 +135,101 @@ body {
 .btn-primary:hover  { background: #7d75ff; }
 .btn-primary:active { transform: scale(0.97); }
 
-.btn-secondary {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
-  color: rgba(255,255,255,0.65);
-  font-size: 0.82rem;
-  font-family: inherit;
-  padding: 9px 18px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.btn-secondary:hover { background: rgba(255,255,255,0.12); color: white; }
-
-.btn-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-/* ── OAuth steps ─────────────────────────────────────────────────────────────── */
-.oauth-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 10px;
-  padding: 14px;
-}
-
-.oauth-step {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  font-size: 0.8rem;
-  color: rgba(255,255,255,0.65);
-  line-height: 1.5;
-}
-
-.step-num {
-  background: rgba(108,99,255,0.3);
-  color: #c4bfff;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.oauth-step strong { color: rgba(255,255,255,0.88); }
-.oauth-step em     { color: rgba(255,255,255,0.5); font-style: normal; }
-
-.ext-link {
-  color: #a89cf7;
-  text-decoration: none;
-}
-.ext-link:hover { text-decoration: underline; }
-
-.scope-list {
-  margin: 4px 0 0 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.scope-list li { list-style: disc; }
-
-.scope-list code {
-  font-size: 0.72rem;
-  background: rgba(255,255,255,0.07);
-  padding: 1px 4px;
-  border-radius: 4px;
-  color: rgba(255,255,255,0.7);
-}
-
-/* ── Google status ───────────────────────────────────────────────────────────── */
-.google-status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-}
-.google-status-label { font-size: 0.8rem; color: rgba(255,255,255,0.5); }
-.google-status-val   { font-size: 0.78rem; color: rgba(255,255,255,0.7); }
-
-/* ── Snapshot list ────────────────────────────────────────────────────────────── */
-.snapshot-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 400px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
-}
-
-.snap-empty {
-  font-size: 0.78rem;
-  color: rgba(255,255,255,0.25);
-  text-align: center;
-  padding: 20px 0;
-  font-style: italic;
-}
-
-.snap-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.03);
-  transition: background 0.12s;
-}
-.snap-row:hover { background: rgba(255,255,255,0.06); }
-
-.snap-ts   { flex: 1; font-size: 0.78rem; color: rgba(255,255,255,0.7); }
-.snap-info { font-size: 0.7rem; color: rgba(255,255,255,0.35); }
-
-.snap-revert {
-  background: transparent;
-  border: 1px solid rgba(108,99,255,0.4);
-  border-radius: 6px;
-  color: rgba(168,156,247,0.8);
-  font-size: 0.7rem;
-  font-family: inherit;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.snap-revert:hover { background: rgba(108,99,255,0.2); color: white; }
-
-/* ── GitHub account row (connected state) ────────────────────────────────────── */
-.github-account-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-}
-
-.github-account-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #24292e;
-  border: 1px solid rgba(255,255,255,0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.github-account-label {
-  font-size: 0.82rem;
-  color: rgba(255,255,255,0.85);
-  font-weight: 500;
-}
-
-.github-account-sub {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
-  margin-top: 2px;
-}
-
-.github-account-row > div:not(.github-account-icon) { flex: 1; }
-
-/* ── GitHub connect button ───────────────────────────────────────────────────── */
-.btn-github {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #24292e;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  color: white;
-  font-size: 0.84rem;
-  font-weight: 500;
-  font-family: inherit;
-  padding: 10px 18px;
-  cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
-  margin-top: 14px;
-}
-.btn-github:hover:not(:disabled) { background: #2f363d; }
-.btn-github:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ── Device code box ─────────────────────────────────────────────────────────── */
-.device-code-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(108,99,255,0.35);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-top: 12px;
-}
-
-.device-code-label {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.4);
-  margin-bottom: 4px;
-}
-
-.device-code-value {
-  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 1.4rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  color: #c4bfff;
-}
-
-.inline-code {
-  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 0.72rem;
-  background: rgba(255,255,255,0.07);
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: rgba(255,255,255,0.65);
-}
-
-/* ── Google account row (connected state) ────────────────────────────────────── */
-.google-account-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-}
-
-.google-account-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #4285F4 0%, #34A853 50%, #EA4335 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
-}
-
-.google-account-label {
-  font-size: 0.82rem;
-  color: rgba(255,255,255,0.85);
-  font-weight: 500;
-}
-
-.google-account-sub {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
-  margin-top: 2px;
-}
-
-.google-account-row > div { flex: 1; }
-
-/* ── Google sign-in button ───────────────────────────────────────────────────── */
-.btn-google {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: white;
-  border: none;
-  border-radius: 10px;
-  color: #3c4043;
-  font-size: 0.84rem;
-  font-weight: 500;
-  font-family: inherit;
-  padding: 10px 18px;
-  cursor: pointer;
-  transition: box-shadow 0.15s, opacity 0.15s;
-  margin-top: 14px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-.btn-google:hover:not(:disabled) { box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-.btn-google:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ── Setup collapsible ───────────────────────────────────────────────────────── */
-.setup-details {
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.setup-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 14px;
-  font-size: 0.8rem;
-  color: rgba(255,255,255,0.55);
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  transition: color 0.15s;
-}
-.setup-summary::-webkit-details-marker { display: none; }
-.setup-summary:hover { color: rgba(255,255,255,0.8); }
-
-.setup-chevron {
-  font-size: 0.7rem;
-  transition: transform 0.2s;
-}
-.setup-details[open] .setup-chevron { transform: rotate(90deg); }
-
-/* ── Redirect URI box ────────────────────────────────────────────────────────── */
-.redirect-uri-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 7px;
-  padding: 6px 10px;
-  margin-top: 5px;
-}
-
-.redirect-uri-box code {
-  flex: 1;
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.65);
-  word-break: break-all;
-  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
-}
-
-.copy-btn {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 5px;
-  color: rgba(255,255,255,0.4);
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-.copy-btn:hover { color: white; border-color: rgba(255,255,255,0.35); }
-
 /* ── Footer ─────────────────────────────────────────────────────────────────── */
 .settings-footer {
   margin-top: 28px;
   padding-top: 18px;
   border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+/* ── Chip selector (for theme and size) ─────────────────────────────────────── */
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.chip {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.11);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.82rem;
+  font-family: inherit;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip:hover { background: rgba(255,255,255,0.12); color: white; }
+.chip.active {
+  background: rgba(108,99,255,0.3);
+  border-color: rgba(108,99,255,0.7);
+  color: #d0caff;
+  font-weight: 600;
+}
+
+/* ── Font size classes ───────────────────────────────────────────────────────── */
+html.size-small { font-size: 13px; }
+html.size-large { font-size: 17px; }
+
+/* ── Light theme overrides ───────────────────────────────────────────────────── */
+html.theme-light body {
+  background: #f0edff;
+  color: #1a1830;
+}
+
+html.theme-light .settings-title {
+  color: rgba(0,0,0,0.4);
+}
+
+html.theme-light .tab-nav {
+  background: rgba(0,0,0,0.06);
+}
+
+html.theme-light .tab-btn {
+  color: rgba(0,0,0,0.45);
+}
+html.theme-light .tab-btn:hover:not(.active) {
+  color: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.06);
+}
+
+html.theme-light .section-label {
+  color: rgba(0,0,0,0.4);
+}
+
+html.theme-light .field-label {
+  color: rgba(0,0,0,0.7);
+}
+
+html.theme-light .field-input {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.15);
+  color: #1a1830;
+}
+html.theme-light .field-input::placeholder {
+  color: rgba(0,0,0,0.28);
+}
+
+html.theme-light .field-hint {
+  color: rgba(0,0,0,0.4);
+}
+
+html.theme-light .settings-footer {
+  border-top-color: rgba(0,0,0,0.1);
+}
+
+html.theme-light .chip {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.5);
+}
+html.theme-light .chip:hover {
+  background: rgba(0,0,0,0.1);
+  color: #1a1830;
+}
+html.theme-light .chip.active {
+  background: rgba(108,99,255,0.15);
+  border-color: rgba(108,99,255,0.5);
+  color: #5248cc;
 }

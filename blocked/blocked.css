@@ -206,3 +206,68 @@ body {
   color: white;
   transform: translateY(-1px);
 }
+
+/* ── Light theme overrides ───────────────────────────────────────────────────── */
+html.theme-light body {
+  background: linear-gradient(135deg, #e8e4ff, #d0ccff, #e0ddff);
+  color: #1a1830;
+  animation: none;
+}
+
+html.theme-light .site-name {
+  color: #1a1830;
+}
+
+html.theme-light .headline {
+  color: rgba(0,0,0,0.55);
+}
+
+html.theme-light .timer-row {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.1);
+}
+
+html.theme-light .timer-val {
+  color: #5248cc;
+}
+
+html.theme-light .timer-label {
+  color: rgba(0,0,0,0.45);
+}
+
+html.theme-light .gate-btn.primary {
+  background: rgba(108,99,255,0.8);
+  border-color: rgba(108,99,255,0.95);
+}
+html.theme-light .gate-btn.primary:hover {
+  background: rgba(108,99,255,0.95);
+}
+
+html.theme-light .gate-btn.secondary {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .gate-btn.secondary:hover {
+  background: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+
+html.theme-light .pw-input {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.15);
+  color: #1a1830;
+}
+html.theme-light .pw-input::placeholder {
+  color: rgba(0,0,0,0.3);
+}
+
+html.theme-light .hard-back {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.6);
+}
+html.theme-light .hard-back:hover {
+  background: rgba(0,0,0,0.12);
+  color: #1a1830;
+}

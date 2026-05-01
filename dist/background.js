@@ -3,8 +3,6 @@
   // src/shared/storage.ts
   var KEY_STATE = "styl_state";
   var KEY_SETTINGS = "styl_settings";
-  var KEY_SNAPSHOTS = "styl_snapshots";
-  var MAX_SNAPSHOTS = 50;
   async function get(key) {
     const result = await browser.storage.local.get(key);
     return result[key] ?? null;
@@ -16,15 +14,7 @@
     getState: () => get(KEY_STATE),
     setState: (s) => set(KEY_STATE, s),
     getSettings: () => get(KEY_SETTINGS),
-    setSettings: (s) => set(KEY_SETTINGS, s),
-    getSnapshots: () => get(KEY_SNAPSHOTS).then((s) => s ?? []),
-    setSnapshots: (s) => set(KEY_SNAPSHOTS, s),
-    async pushSnapshot(snap) {
-      const snaps = await Storage.getSnapshots();
-      snaps.unshift(snap);
-      if (snaps.length > MAX_SNAPSHOTS) snaps.length = MAX_SNAPSHOTS;
-      await Storage.setSnapshots(snaps);
-    }
+    setSettings: (s) => set(KEY_SETTINGS, s)
   };
 
   // src/background/timer.ts
@@ -189,7 +179,10 @@
   var settings = {
     focusDuration: 25 * 60,
     breakDuration: 5 * 60,
-    longBreakDuration: 15 * 60
+    longBreakDuration: 15 * 60,
+    theme: "dark",
+    fontSize: "medium",
+    apiKey: ""
   };
   var tempBypass = /* @__PURE__ */ new Map();
   var ports = /* @__PURE__ */ new Set();

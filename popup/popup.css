@@ -687,3 +687,196 @@ body {
   border-color: rgba(255,255,255,0.25);
   color: rgba(255,255,255,0.65);
 }
+
+/* ── Font size classes ───────────────────────────────────────────────────────── */
+html.size-small { font-size: 13px; }
+html.size-large { font-size: 17px; }
+
+/* ── Light theme overrides ───────────────────────────────────────────────────── */
+html.theme-light body {
+  background: #eeebff;
+  color: #1a1830;
+}
+
+html.theme-light .header {
+  border-bottom-color: rgba(0,0,0,0.1);
+}
+
+html.theme-light .mode-tabs {
+  background: rgba(0,0,0,0.06);
+}
+
+html.theme-light .mode-tab {
+  color: rgba(0,0,0,0.45);
+}
+html.theme-light .mode-tab:hover:not(.active) {
+  color: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.07);
+}
+
+html.theme-light .ring-bg {
+  stroke: rgba(0,0,0,0.1);
+}
+
+html.theme-light .time-text:hover {
+  border-bottom-color: rgba(0,0,0,0.35);
+}
+
+html.theme-light .add-min-btn {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.5);
+}
+html.theme-light .add-min-btn:hover {
+  background: rgba(0,0,0,0.12);
+  border-color: rgba(0,0,0,0.2);
+  color: #1a1830;
+}
+
+html.theme-light .ctrl-btn.secondary {
+  background: rgba(0,0,0,0.07);
+  color: rgba(0,0,0,0.5);
+}
+html.theme-light .ctrl-btn.secondary:hover {
+  background: rgba(0,0,0,0.13);
+  color: rgba(0,0,0,0.85);
+}
+
+html.theme-light .sessions-label {
+  color: rgba(0,0,0,0.4);
+}
+
+html.theme-light .session-dot {
+  background: rgba(0,0,0,0.15);
+}
+
+html.theme-light .preset-chip {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .preset-chip:hover {
+  background: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+
+html.theme-light #block-panel,
+html.theme-light #preset-editor {
+  scrollbar-color: rgba(0,0,0,0.1) transparent;
+}
+
+html.theme-light .bp-header {
+  border-bottom-color: rgba(0,0,0,0.1);
+}
+
+html.theme-light .back-btn {
+  color: rgba(0,0,0,0.4);
+}
+html.theme-light .back-btn:hover {
+  color: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.05);
+}
+
+html.theme-light .bp-title {
+  color: rgba(0,0,0,0.35);
+}
+
+html.theme-light .bp-toggle-row {
+  border-bottom-color: rgba(0,0,0,0.07);
+}
+html.theme-light .bp-toggle-label {
+  color: rgba(0,0,0,0.8);
+}
+
+html.theme-light .toggle-track {
+  background: rgba(0,0,0,0.15);
+}
+
+html.theme-light .bp-section-label {
+  color: rgba(0,0,0,0.3);
+}
+
+html.theme-light .bp-preset {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.1);
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .bp-preset:hover {
+  background: rgba(0,0,0,0.1);
+  color: #1a1830;
+}
+
+html.theme-light .bp-site-row {
+  background: rgba(0,0,0,0.04);
+}
+html.theme-light .bp-site-row:hover {
+  background: rgba(0,0,0,0.08);
+}
+html.theme-light .bp-site-domain {
+  color: rgba(0,0,0,0.75);
+}
+html.theme-light .bp-site-remove {
+  color: rgba(0,0,0,0.25);
+}
+
+html.theme-light .bp-empty {
+  color: rgba(0,0,0,0.25);
+}
+
+html.theme-light .bp-add-input {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+html.theme-light .bp-add-input::placeholder {
+  color: rgba(0,0,0,0.28);
+}
+
+html.theme-light .bp-list-section {
+  border-top-color: rgba(0,0,0,0.07);
+}
+html.theme-light .bp-list-title {
+  color: rgba(0,0,0,0.55);
+}
+html.theme-light .bp-list-sub {
+  color: rgba(0,0,0,0.3);
+}
+
+html.theme-light .bp-gate-chip {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.1);
+  color: rgba(0,0,0,0.45);
+}
+html.theme-light .bp-gate-chip:hover {
+  background: rgba(0,0,0,0.1);
+  color: #1a1830;
+}
+
+html.theme-light .bp-pw-input {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.12);
+  color: #1a1830;
+}
+html.theme-light .bp-pw-input::placeholder {
+  color: rgba(0,0,0,0.28);
+}
+
+html.theme-light .pe-tabs {
+  background: rgba(0,0,0,0.06);
+}
+html.theme-light .pe-tab {
+  color: rgba(0,0,0,0.45);
+}
+html.theme-light .pe-tab:hover:not(.active) {
+  color: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.07);
+}
+
+html.theme-light .pe-reset-btn {
+  border-color: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.35);
+}
+html.theme-light .pe-reset-btn:hover {
+  border-color: rgba(0,0,0,0.25);
+  color: rgba(0,0,0,0.65);
+}
