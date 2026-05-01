@@ -43,6 +43,7 @@ export interface AppSettings {
   theme:             ThemeMode;
   fontSize:          FontSize;
   apiKey:            string;
+  timerSound:        boolean;
 }
 
 export type BgMessage =
@@ -62,7 +63,8 @@ export type BgMessage =
   | { type: 'requestBypass';       site: string }
   | { type: 'checkBypassPassword'; password: string }
   | { type: 'getTimerState' }
-  | { type: 'getBlockState' };
+  | { type: 'getBlockState' }
+  | { type: 'setTimerSound';       enabled: boolean };
 
 export type UiMessage =
   | { type: 'stateUpdate'; state: AppState; event?: string }

@@ -29,7 +29,8 @@ let blockState: BlockState = {
 let isEditing      = false;
 let currentPreset: keyof BlockPresets = 'social';
 
-let timerTick: ReturnType<typeof setInterval> | null = null;
+let timerTick:    ReturnType<typeof setInterval> | null = null;
+let soundEnabled: boolean = true;
 
 function liveRemaining(): number {
   const t = state?.timer;
@@ -59,6 +60,23 @@ function syncTimerTick() {
   }
 }
 
+// ── Sound / mute ─────────────────────────────────────────────────────────────
+
+function updateMuteBtn() {
+  const btn = document.getElementById('mute-btn') as HTMLElement;
+  btn.classList.toggle('muted', !soundEnabled);
+  btn.title = soundEnabled ? 'Mute sound' : 'Unmute sound';
+  (btn.querySelector('.icon-sound-on')  as HTMLElement).classList.toggle('hidden', !soundEnabled);
+  (btn.querySelector('.icon-sound-off') as HTMLElement).classList.toggle('hidden', soundEnabled);
+}
+
+// Load persisted sound setting (stored alongside other AppSettings).
+browser.storage.local.get('styl_settings').then((result: Record<string, unknown>) => {
+  const s = result['styl_settings'] as { timerSound?: boolean } | undefined;
+  soundEnabled = s?.timerSound ?? true;
+  updateMuteBtn();
+}).catch(() => {});
+
 // ── Connection ────────────────────────────────────────────────────────────────
 
 function connect() {
@@ -72,7 +90,7 @@ function connect() {
         renderBlockPanel();
         renderPresetEditor();
         updateShield();
-        if ((msg as { event?: string }).event === 'timerComplete') playChime();
+        if ((msg as { event?: string }).event === 'timerComplete' && soundEnabled) playChime();
         break;
       case 'blockStateUpdate':
         blockState = msg.blockState as BlockState;
@@ -429,6 +447,13 @@ function wire() {
   document.getElementById('pe-reset-btn')!.addEventListener('click', () => {
     const presets = blockState.presets ?? DEFAULT_PRESETS;
     send({ type: 'setPresets', presets: { ...presets, [currentPreset]: [...DEFAULT_PRESETS[currentPreset]] } });
+  });
+
+  // Mute toggle
+  document.getElementById('mute-btn')!.addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    updateMuteBtn();
+    send({ type: 'setTimerSound', enabled: soundEnabled });
   });
 
   // Settings link

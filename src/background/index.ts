@@ -8,6 +8,10 @@ import {
   ALARM_COMPLETE, ALARM_KEEPALIVE,
 } from './timer';
 
+// Detect browser at runtime.
+// The Chrome build banner sets `browser = chrome`, so getURL starts with chrome-extension://.
+const IS_FIREFOX = browser.runtime.getURL('').startsWith('moz-extension://');
+
 const DEFAULT_PRESETS: BlockPresets = {
   social: ['instagram.com','facebook.com','twitter.com','x.com','tiktok.com',
            'reddit.com','snapchat.com','pinterest.com','threads.net','linkedin.com','tumblr.com'],
@@ -31,6 +35,7 @@ let settings: AppSettings = {
   theme:             'dark',
   fontSize:          'medium',
   apiKey:            '',
+  timerSound:        true,
 };
 
 // Per-site temporary bypass: site → expiry timestamp (ms)
@@ -73,6 +78,8 @@ const ports = new Set<browser.runtime.Port>();
   if (savedSettings) settings = savedSettings as AppSettings;
 
   browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
+  updateBadge();
+  await syncDnrRules(); // Chrome: restore rules after service worker restart
 })();
 
 browser.alarms.onAlarm.addListener((alarm) => {
@@ -80,21 +87,30 @@ browser.alarms.onAlarm.addListener((alarm) => {
     const { state, prevMode } = onTimerComplete(appState.timer);
     appState.timer = state;
 
-    browser.notifications.create('styl-done', {
-      type:     'basic',
-      iconUrl:  browser.runtime.getURL('icons/icon.svg'),
-      title:    'Styl',
-      message:  prevMode === 'focus'
-        ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
-        : 'Break over — back to focus.',
-    });
+    if (settings.timerSound) {
+      browser.notifications.create('styl-done', {
+        type:     'basic',
+        iconUrl:  browser.runtime.getURL('icons/icon.svg'),
+        title:    'Styl',
+        message:  prevMode === 'focus'
+          ? `Time for a ${state.mode === 'longBreak' ? 'long ' : ''}break!`
+          : 'Break over — back to focus.',
+      });
+    }
 
     persistState();
     broadcast({ type: 'stateUpdate', state: appState, event: 'timerComplete' });
+    updateBadge();
+    syncDnrRules(); // focus timer ended — remove focus-site rules on Chrome
+  }
+
+  if (alarm.name === ALARM_BADGE_TICK) {
+    updateBadge();
   }
 
   if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
     broadcast({ type: 'stateUpdate', state: appState });
+    updateBadge();
   }
 });
 
@@ -114,9 +130,91 @@ function broadcast(msg: unknown): void {
 
 function broadcastState(): void {
   broadcast({ type: 'stateUpdate', state: appState });
+  updateBadge();
 }
 
-// One-shot messages (used by blocked page)
+// ── Badge ────────────────────────────────────────────────────────────────────
+
+const ALARM_BADGE_TICK = 'styl-badge-tick';
+
+function updateBadge(): void {
+  browser.alarms.clear(ALARM_BADGE_TICK);
+  if (!appState.timer.isRunning) {
+    browser.action.setBadgeText({ text: '' });
+    return;
+  }
+  const secs = Math.max(0, getTimeRemaining(appState.timer));
+  const mins = Math.ceil(secs / 60);
+  browser.action.setBadgeText({ text: String(mins) });
+  browser.action.setBadgeBackgroundColor({ color: '#ffffff' });
+  browser.action.setBadgeTextColor({ color: '#000000' });
+  // Schedule next update at the exact moment the minute count flips.
+  // Chrome MV3 clamps alarm delays to ≥1 min, so badge ticks are less precise
+  // there; Firefox honours sub-minute delays and flips exactly on time.
+  if (secs > 0) {
+    const secsUntilFlip = (secs % 60) || 60;
+    browser.alarms.create(ALARM_BADGE_TICK, { delayInMinutes: secsUntilFlip / 60 });
+  }
+}
+
+// ── Chrome: declarativeNetRequest blocking ───────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getDnr = (): any => (globalThis as any).chrome?.declarativeNetRequest;
+
+async function syncDnrRules(): Promise<void> {
+  if (IS_FIREFOX) return;
+  const dnr = getDnr();
+  if (!dnr) return;
+
+  const existing: Array<{ id: number }> = await dnr.getDynamicRules();
+  const removeIds = existing.map((r) => r.id);
+
+  const rules: object[] = [];
+  let id = 1;
+  const blockedUrl = browser.runtime.getURL('blocked/blocked.html');
+  const { enabled, alwaysSites, focusSites, gate } = appState.blockState;
+
+  if (enabled) {
+    const now = Date.now();
+    for (const site of alwaysSites) {
+      const exp = tempBypass.get(site);
+      if (exp !== undefined && now < exp) continue;
+      rules.push(makeDnrRule(id++, site, 'always', gate, blockedUrl));
+    }
+    if (appState.timer.isRunning && appState.timer.mode === 'focus') {
+      for (const site of focusSites) {
+        const exp = tempBypass.get(site);
+        if (exp !== undefined && now < exp) continue;
+        rules.push(makeDnrRule(id++, site, 'focus', gate, blockedUrl));
+      }
+    }
+  }
+
+  await dnr.updateDynamicRules({ removeRuleIds: removeIds, addRules: rules });
+}
+
+function makeDnrRule(
+  id: number, site: string, bm: 'always' | 'focus', gate: string, blockedUrl: string,
+): object {
+  return {
+    id,
+    priority: 1,
+    action: {
+      type: 'redirect',
+      redirect: {
+        url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}`,
+      },
+    },
+    condition: {
+      urlFilter: `||${site}^`,
+      resourceTypes: ['main_frame'],
+    },
+  };
+}
+
+// ── One-shot messages (used by blocked page) ─────────────────────────────────
+
 browser.runtime.onMessage.addListener(
   (msg: { type: string; password?: string; site?: string }, _sender, sendResponse: (r: unknown) => void) => {
     if (msg.type === 'getTimerState') {
@@ -133,7 +231,22 @@ browser.runtime.onMessage.addListener(
       return false;
     }
     if (msg.type === 'requestBypass') {
-      if (msg.site) tempBypass.set(msg.site, Date.now() + 5000);
+      const site = msg.site;
+      if (site) {
+        tempBypass.set(site, Date.now() + 5000);
+        if (!IS_FIREFOX) {
+          // Remove the DNR rule before responding so the navigation that follows
+          // the response doesn't race against the rule still being in place.
+          syncDnrRules().then(() => {
+            sendResponse({ ok: true });
+            setTimeout(() => {
+              tempBypass.delete(site);
+              syncDnrRules();
+            }, 5000);
+          });
+          return true; // async sendResponse
+        }
+      }
       sendResponse({ ok: true });
       return false;
     }
@@ -141,29 +254,40 @@ browser.runtime.onMessage.addListener(
   }
 );
 
+// ── Message handler ──────────────────────────────────────────────────────────
+
 async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promise<void> {
   switch (msg.type) {
     case 'timerStart':
       appState.timer = startTimer(appState.timer);
       await persistState(); broadcastState();
+      await syncDnrRules(); // add focus-site rules on Chrome
       redirectBlockedTabs();
       break;
 
     case 'timerPause':
       appState.timer = pauseTimer(appState.timer);
-      await persistState(); broadcastState(); break;
+      await persistState(); broadcastState();
+      syncDnrRules(); // focus sites no longer active on Chrome
+      break;
 
     case 'timerReset':
       appState.timer = resetTimer(appState.timer);
-      await persistState(); broadcastState(); break;
+      await persistState(); broadcastState();
+      syncDnrRules();
+      break;
 
     case 'timerSkip':
       appState.timer = skipTimer(appState.timer);
-      await persistState(); broadcastState(); break;
+      await persistState(); broadcastState();
+      syncDnrRules(); // mode may have changed
+      break;
 
     case 'timerSetMode':
       appState.timer = setTimerMode(appState.timer, msg.mode as TimerMode);
-      await persistState(); broadcastState(); break;
+      await persistState(); broadcastState();
+      syncDnrRules();
+      break;
 
     case 'timerAddMinute':
       appState.timer = addMinute(appState.timer);
@@ -182,6 +306,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.blockState.enabled = msg.enabled;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      await syncDnrRules();
       if (msg.enabled) redirectBlockedTabs();
       else             unblockFreedTabs();
       break;
@@ -190,6 +315,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.blockState.alwaysSites = msg.sites;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      await syncDnrRules();
       redirectBlockedTabs();
       unblockFreedTabs();
       break;
@@ -198,6 +324,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.blockState.focusSites = msg.sites;
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      await syncDnrRules();
       unblockFreedTabs();
       break;
 
@@ -210,6 +337,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       }
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
+      syncDnrRules(); // gate param in redirect URL changed
       break;
 
     case 'setPresets':
@@ -217,8 +345,15 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       await persistState();
       broadcast({ type: 'blockStateUpdate', blockState: { ...appState.blockState } });
       break;
+
+    case 'setTimerSound':
+      settings.timerSound = msg.enabled;
+      await Storage.setSettings(settings);
+      break;
   }
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 // Check if a host is permanently blocked (ignores tempBypass — used for unblock decisions).
 function isPermBlocked(host: string): boolean {
@@ -231,7 +366,7 @@ function isPermBlocked(host: string): boolean {
   return false;
 }
 
-// For webRequest: also checks tempBypass.
+// For webRequest (Firefox only): also checks tempBypass.
 function getBlockInfo(host: string): { bm: 'always' | 'focus' } | null {
   const { enabled, alwaysSites, focusSites } = appState.blockState;
   if (!enabled) return null;
@@ -277,7 +412,7 @@ async function redirectBlockedTabs(): Promise<void> {
   }
 }
 
-// Navigate blocked-page tabs back to their original site when a site is unblocked.
+// Navigate blocked-page tabs back when a site is unblocked.
 async function unblockFreedTabs(): Promise<void> {
   const blockedBase = browser.runtime.getURL('blocked/blocked.html');
   const tabs = await browser.tabs.query({});
@@ -290,7 +425,8 @@ async function unblockFreedTabs(): Promise<void> {
     catch { continue; }
 
     const site = params.get('site');
-    const from = params.get('from');
+    // `from` may be absent on Chrome (DNR redirects don't carry it); fall back to site root.
+    const from = params.get('from') || (site ? 'https://' + site : null);
     if (!site || !from) continue;
 
     if (!isPermBlocked(site)) {
@@ -303,25 +439,31 @@ async function persistState(): Promise<void> {
   await Storage.setState(appState);
 }
 
-browser.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    let host: string;
-    try { host = new URL(details.url).hostname.replace(/^www\./, ''); }
-    catch { return {}; }
+// ── Firefox: webRequest blocking ─────────────────────────────────────────────
+// Chrome MV3 does not support blocking webRequest; it uses declarativeNetRequest
+// rules managed by syncDnrRules() above instead.
 
-    const info = getBlockInfo(host);
-    if (!info) return {};
+if (IS_FIREFOX) {
+  browser.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      let host: string;
+      try { host = new URL(details.url).hostname.replace(/^www\./, ''); }
+      catch { return {}; }
 
-    const { gate } = appState.blockState;
-    return {
-      redirectUrl:
-        browser.runtime.getURL('blocked/blocked.html') +
-        '?site=' + encodeURIComponent(host) +
-        '&from=' + encodeURIComponent(details.url) +
-        '&gate=' + gate +
-        '&bm='   + info.bm,
-    };
-  },
-  { urls: ['<all_urls>'], types: ['main_frame'] },
-  ['blocking']
-);
+      const info = getBlockInfo(host);
+      if (!info) return {};
+
+      const { gate } = appState.blockState;
+      return {
+        redirectUrl:
+          browser.runtime.getURL('blocked/blocked.html') +
+          '?site=' + encodeURIComponent(host) +
+          '&from=' + encodeURIComponent(details.url) +
+          '&gate=' + gate +
+          '&bm='   + info.bm,
+      };
+    },
+    { urls: ['<all_urls>'], types: ['main_frame'] },
+    ['blocking']
+  );
+}

@@ -148,6 +148,7 @@
   }
 
   // src/background/index.ts
+  var IS_FIREFOX = browser.runtime.getURL("").startsWith("moz-extension://");
   var DEFAULT_PRESETS = {
     social: [
       "instagram.com",
@@ -182,7 +183,8 @@
     longBreakDuration: 15 * 60,
     theme: "dark",
     fontSize: "medium",
-    apiKey: ""
+    apiKey: "",
+    timerSound: true
   };
   var tempBypass = /* @__PURE__ */ new Map();
   var ports = /* @__PURE__ */ new Set();
@@ -215,22 +217,32 @@
     }
     if (savedSettings) settings = savedSettings;
     browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
+    updateBadge();
+    await syncDnrRules();
   })();
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_COMPLETE) {
       const { state, prevMode } = onTimerComplete(appState.timer);
       appState.timer = state;
-      browser.notifications.create("styl-done", {
-        type: "basic",
-        iconUrl: browser.runtime.getURL("icons/icon.svg"),
-        title: "Styl",
-        message: prevMode === "focus" ? `Time for a ${state.mode === "longBreak" ? "long " : ""}break!` : "Break over \u2014 back to focus."
-      });
+      if (settings.timerSound) {
+        browser.notifications.create("styl-done", {
+          type: "basic",
+          iconUrl: browser.runtime.getURL("icons/icon.svg"),
+          title: "Styl",
+          message: prevMode === "focus" ? `Time for a ${state.mode === "longBreak" ? "long " : ""}break!` : "Break over \u2014 back to focus."
+        });
+      }
       persistState();
       broadcast({ type: "stateUpdate", state: appState, event: "timerComplete" });
+      updateBadge();
+      syncDnrRules();
+    }
+    if (alarm.name === ALARM_BADGE_TICK) {
+      updateBadge();
     }
     if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
       broadcast({ type: "stateUpdate", state: appState });
+      updateBadge();
     }
   });
   browser.runtime.onConnect.addListener((port) => {
@@ -250,6 +262,68 @@
   }
   function broadcastState() {
     broadcast({ type: "stateUpdate", state: appState });
+    updateBadge();
+  }
+  var ALARM_BADGE_TICK = "styl-badge-tick";
+  function updateBadge() {
+    browser.alarms.clear(ALARM_BADGE_TICK);
+    if (!appState.timer.isRunning) {
+      browser.action.setBadgeText({ text: "" });
+      return;
+    }
+    const secs = Math.max(0, getTimeRemaining(appState.timer));
+    const mins = Math.ceil(secs / 60);
+    browser.action.setBadgeText({ text: String(mins) });
+    browser.action.setBadgeBackgroundColor({ color: "#ffffff" });
+    browser.action.setBadgeTextColor({ color: "#000000" });
+    if (secs > 0) {
+      const secsUntilFlip = secs % 60 || 60;
+      browser.alarms.create(ALARM_BADGE_TICK, { delayInMinutes: secsUntilFlip / 60 });
+    }
+  }
+  var getDnr = () => globalThis.chrome?.declarativeNetRequest;
+  async function syncDnrRules() {
+    if (IS_FIREFOX) return;
+    const dnr = getDnr();
+    if (!dnr) return;
+    const existing = await dnr.getDynamicRules();
+    const removeIds = existing.map((r) => r.id);
+    const rules = [];
+    let id = 1;
+    const blockedUrl = browser.runtime.getURL("blocked/blocked.html");
+    const { enabled, alwaysSites, focusSites, gate } = appState.blockState;
+    if (enabled) {
+      const now = Date.now();
+      for (const site of alwaysSites) {
+        const exp = tempBypass.get(site);
+        if (exp !== void 0 && now < exp) continue;
+        rules.push(makeDnrRule(id++, site, "always", gate, blockedUrl));
+      }
+      if (appState.timer.isRunning && appState.timer.mode === "focus") {
+        for (const site of focusSites) {
+          const exp = tempBypass.get(site);
+          if (exp !== void 0 && now < exp) continue;
+          rules.push(makeDnrRule(id++, site, "focus", gate, blockedUrl));
+        }
+      }
+    }
+    await dnr.updateDynamicRules({ removeRuleIds: removeIds, addRules: rules });
+  }
+  function makeDnrRule(id, site, bm, gate, blockedUrl) {
+    return {
+      id,
+      priority: 1,
+      action: {
+        type: "redirect",
+        redirect: {
+          url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}`
+        }
+      },
+      condition: {
+        urlFilter: `||${site}^`,
+        resourceTypes: ["main_frame"]
+      }
+    };
   }
   browser.runtime.onMessage.addListener(
     (msg, _sender, sendResponse) => {
@@ -267,7 +341,20 @@
         return false;
       }
       if (msg.type === "requestBypass") {
-        if (msg.site) tempBypass.set(msg.site, Date.now() + 5e3);
+        const site = msg.site;
+        if (site) {
+          tempBypass.set(site, Date.now() + 5e3);
+          if (!IS_FIREFOX) {
+            syncDnrRules().then(() => {
+              sendResponse({ ok: true });
+              setTimeout(() => {
+                tempBypass.delete(site);
+                syncDnrRules();
+              }, 5e3);
+            });
+            return true;
+          }
+        }
         sendResponse({ ok: true });
         return false;
       }
@@ -280,27 +367,32 @@
         appState.timer = startTimer(appState.timer);
         await persistState();
         broadcastState();
+        await syncDnrRules();
         redirectBlockedTabs();
         break;
       case "timerPause":
         appState.timer = pauseTimer(appState.timer);
         await persistState();
         broadcastState();
+        syncDnrRules();
         break;
       case "timerReset":
         appState.timer = resetTimer(appState.timer);
         await persistState();
         broadcastState();
+        syncDnrRules();
         break;
       case "timerSkip":
         appState.timer = skipTimer(appState.timer);
         await persistState();
         broadcastState();
+        syncDnrRules();
         break;
       case "timerSetMode":
         appState.timer = setTimerMode(appState.timer, msg.mode);
         await persistState();
         broadcastState();
+        syncDnrRules();
         break;
       case "timerAddMinute":
         appState.timer = addMinute(appState.timer);
@@ -321,6 +413,7 @@
         appState.blockState.enabled = msg.enabled;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        await syncDnrRules();
         if (msg.enabled) redirectBlockedTabs();
         else unblockFreedTabs();
         break;
@@ -328,6 +421,7 @@
         appState.blockState.alwaysSites = msg.sites;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        await syncDnrRules();
         redirectBlockedTabs();
         unblockFreedTabs();
         break;
@@ -335,6 +429,7 @@
         appState.blockState.focusSites = msg.sites;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        await syncDnrRules();
         unblockFreedTabs();
         break;
       case "setBlockGate":
@@ -346,11 +441,16 @@
         }
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        syncDnrRules();
         break;
       case "setPresets":
         appState.blockState.presets = msg.presets;
         await persistState();
         broadcast({ type: "blockStateUpdate", blockState: { ...appState.blockState } });
+        break;
+      case "setTimerSound":
+        settings.timerSound = msg.enabled;
+        await Storage.setSettings(settings);
         break;
     }
   }
@@ -415,7 +515,7 @@
         continue;
       }
       const site = params.get("site");
-      const from = params.get("from");
+      const from = params.get("from") || (site ? "https://" + site : null);
       if (!site || !from) continue;
       if (!isPermBlocked(site)) {
         browser.tabs.update(tab.id, { url: from }).catch(() => {
@@ -426,23 +526,25 @@
   async function persistState() {
     await Storage.setState(appState);
   }
-  browser.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      let host;
-      try {
-        host = new URL(details.url).hostname.replace(/^www\./, "");
-      } catch {
-        return {};
-      }
-      const info = getBlockInfo(host);
-      if (!info) return {};
-      const { gate } = appState.blockState;
-      return {
-        redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(details.url) + "&gate=" + gate + "&bm=" + info.bm
-      };
-    },
-    { urls: ["<all_urls>"], types: ["main_frame"] },
-    ["blocking"]
-  );
+  if (IS_FIREFOX) {
+    browser.webRequest.onBeforeRequest.addListener(
+      (details) => {
+        let host;
+        try {
+          host = new URL(details.url).hostname.replace(/^www\./, "");
+        } catch {
+          return {};
+        }
+        const info = getBlockInfo(host);
+        if (!info) return {};
+        const { gate } = appState.blockState;
+        return {
+          redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(details.url) + "&gate=" + gate + "&bm=" + info.bm
+        };
+      },
+      { urls: ["<all_urls>"], types: ["main_frame"] },
+      ["blocking"]
+    );
+  }
 })();
 //# sourceMappingURL=background.js.map

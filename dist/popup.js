@@ -81,6 +81,7 @@
   var isEditing = false;
   var currentPreset = "social";
   var timerTick = null;
+  var soundEnabled = true;
   function liveRemaining() {
     const t = state?.timer;
     if (!t) return 0;
@@ -109,6 +110,19 @@
       }
     }
   }
+  function updateMuteBtn() {
+    const btn = document.getElementById("mute-btn");
+    btn.classList.toggle("muted", !soundEnabled);
+    btn.title = soundEnabled ? "Mute sound" : "Unmute sound";
+    btn.querySelector(".icon-sound-on").classList.toggle("hidden", !soundEnabled);
+    btn.querySelector(".icon-sound-off").classList.toggle("hidden", soundEnabled);
+  }
+  browser.storage.local.get("styl_settings").then((result) => {
+    const s = result["styl_settings"];
+    soundEnabled = s?.timerSound ?? true;
+    updateMuteBtn();
+  }).catch(() => {
+  });
   function connect() {
     port = browser.runtime.connect({ name: "popup" });
     port.onMessage.addListener((msg) => {
@@ -120,7 +134,7 @@
           renderBlockPanel();
           renderPresetEditor();
           updateShield();
-          if (msg.event === "timerComplete") playChime();
+          if (msg.event === "timerComplete" && soundEnabled) playChime();
           break;
         case "blockStateUpdate":
           blockState = msg.blockState;
@@ -424,6 +438,11 @@
     document.getElementById("pe-reset-btn").addEventListener("click", () => {
       const presets = blockState.presets ?? DEFAULT_PRESETS;
       send({ type: "setPresets", presets: { ...presets, [currentPreset]: [...DEFAULT_PRESETS[currentPreset]] } });
+    });
+    document.getElementById("mute-btn").addEventListener("click", () => {
+      soundEnabled = !soundEnabled;
+      updateMuteBtn();
+      send({ type: "setTimerSound", enabled: soundEnabled });
     });
     document.getElementById("settings-link")?.addEventListener(
       "click",

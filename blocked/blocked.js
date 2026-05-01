@@ -1,8 +1,13 @@
+// Browser namespace shim: Chrome uses `chrome`, Firefox uses `browser`.
+if (typeof browser === 'undefined') { var browser = chrome; } // eslint-disable-line no-var
+
 // Styl — blocked page
 
 const params  = new URLSearchParams(window.location.search);
 const site    = params.get('site') || 'This site';
-const fromUrl = params.get('from') || '';
+// Firefox webRequest redirects carry the full originating URL in `from`.
+// Chrome declarativeNetRequest redirects do not; fall back to the site root.
+const fromUrl = params.get('from') || (site !== 'This site' ? 'https://' + site : '');
 const gate    = params.get('gate') || 'none'; // 'none' | 'confirm' | 'password'
 const bm      = params.get('bm')   || 'focus'; // 'focus' | 'always'
 

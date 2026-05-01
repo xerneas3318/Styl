@@ -293,7 +293,26 @@ body {
 }
 .session-dot.filled { background: #6c63ff; }
 
+.sessions-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .sessions-label { font-size: 0.7rem; color: rgba(255,255,255,0.3); letter-spacing: 0.04em; }
+
+.mute-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.35);
+  line-height: 0;
+  transition: color 0.15s;
+}
+.mute-btn:hover { color: rgba(255,255,255,0.7); }
+.mute-btn.muted { color: rgba(255,255,255,0.2); }
+.mute-btn svg   { width: 18px; height: 18px; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    Block panel
@@ -745,6 +764,10 @@ html.theme-light .ctrl-btn.secondary:hover {
 html.theme-light .sessions-label {
   color: rgba(0,0,0,0.4);
 }
+
+html.theme-light .mute-btn       { color: rgba(0,0,0,0.3); }
+html.theme-light .mute-btn:hover { color: rgba(0,0,0,0.65); }
+html.theme-light .mute-btn.muted { color: rgba(0,0,0,0.15); }
 
 html.theme-light .session-dot {
   background: rgba(0,0,0,0.15);

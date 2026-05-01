@@ -8,14 +8,13 @@
     "storage",
     "alarms",
     "notifications",
-    "webRequest",
-    "webRequestBlocking",
+    "declarativeNetRequest",
     "tabs"
   ],
   "host_permissions": ["<all_urls>"],
 
   "background": {
-    "scripts": ["dist/background.js"]
+    "service_worker": "dist/background.js"
   },
 
   "action": {
@@ -40,12 +39,5 @@
       "resources": ["blocked/blocked.html"],
       "matches": ["<all_urls>"]
     }
-  ],
-
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "styl@xerneas",
-      "strict_min_version": "109.0"
-    }
-  }
+  ]
 }
