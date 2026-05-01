@@ -547,4 +547,3 @@
     );
   }
 })();
-//# sourceMappingURL=background.js.map

@@ -135,4 +135,3 @@
   initTabs();
   init();
 })();
-//# sourceMappingURL=settings.js.map

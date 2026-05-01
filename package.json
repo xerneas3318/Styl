@@ -7,6 +7,8 @@
     "build:chrome": "node build.js --chrome",
     "watch": "node build.js --watch",
     "watch:chrome": "node build.js --watch --chrome",
+    "package:firefox": "node build.js --package",
+    "package:chrome": "node build.js --package --chrome",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
