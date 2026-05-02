@@ -69,9 +69,10 @@ function showAnnoyingGate() {
   // Wait a frame so the button is laid out and offsetWidth/Height are available.
   requestAnimationFrame(() => randomizeBtn(btn));
 
-  if (annoyingLevel === 'high') {
-    // High mode: button jumps to a new random spot every 500ms.
-    const interval = setInterval(() => randomizeBtn(btn), 500);
+  if (annoyingLevel === 'high' || annoyingLevel === 'extra-high') {
+    // High: jumps every 1s. Extra-high: jumps every 500ms.
+    const ms = annoyingLevel === 'extra-high' ? 500 : 1000;
+    const interval = setInterval(() => randomizeBtn(btn), ms);
     btn.addEventListener('click', () => { clearInterval(interval); goTo(fromUrl); });
   } else {
     btn.addEventListener('click', () => goTo(fromUrl));

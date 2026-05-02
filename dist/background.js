@@ -243,11 +243,11 @@
     }
     if (alarm.name === ALARM_REMINDER) {
       if (appState.timer.isRunning && appState.timer.mode === "focus") {
-        browser.notifications.create("styl-reminder", {
+        browser.notifications.create(`styl-reminder-${Date.now()}`, {
           type: "basic",
           iconUrl: browser.runtime.getURL("icons/icon.svg"),
           title: "Time to check in",
-          message: "You've been focusing for a while \u2014 still going, or time for a break?"
+          message: "Still focusing? Consider taking a break if you need one."
         });
       } else {
         browser.alarms.clear(ALARM_REMINDER);
@@ -262,7 +262,7 @@
     }
   });
   browser.notifications.onClicked.addListener((id) => {
-    if (id === "styl-reminder") {
+    if (id.startsWith("styl-reminder")) {
       browser.action.openPopup().catch(() => {
       });
     }
@@ -305,14 +305,9 @@
   }
   var ALARM_REMINDER = "styl-reminder";
   function syncReminderAlarm() {
+    browser.alarms.clear(ALARM_REMINDER);
     if (settings.reminders && appState.timer.isRunning && appState.timer.mode === "focus") {
-      browser.alarms.get(ALARM_REMINDER).then((alarm) => {
-        if (!alarm) {
-          browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
-        }
-      });
-    } else {
-      browser.alarms.clear(ALARM_REMINDER);
+      browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
     }
   }
   var getDnr = () => globalThis.chrome?.declarativeNetRequest;

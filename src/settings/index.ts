@@ -99,9 +99,10 @@ function sendBg(msg: object) {
 }
 
 const ANNOYING_DESCS: Record<string, string> = {
-  off:    'Off — bypassing goes straight through.',
-  normal: 'Normal — a second screen appears with the proceed button in a random spot.',
-  high:   'High — the proceed button jumps to a new position every 0.5 seconds.',
+  off:          'Off — bypassing goes straight through.',
+  normal:       'Normal — a second screen with the proceed button in a random spot.',
+  high:         'High — the proceed button jumps to a new random spot every second.',
+  'extra-high': 'Extra High — the proceed button jumps every 0.5 seconds.',
 };
 function updateAnnoyingDesc(level: string) {
   const el = document.getElementById('annoying-desc');

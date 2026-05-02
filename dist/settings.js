@@ -130,8 +130,9 @@
   }
   var ANNOYING_DESCS = {
     off: "Off \u2014 bypassing goes straight through.",
-    normal: "Normal \u2014 a second screen appears with the proceed button in a random spot.",
-    high: "High \u2014 the proceed button jumps to a new position every 0.5 seconds."
+    normal: "Normal \u2014 a second screen with the proceed button in a random spot.",
+    high: "High \u2014 the proceed button jumps to a new random spot every second.",
+    "extra-high": "Extra High \u2014 the proceed button jumps every 0.5 seconds."
   };
   function updateAnnoyingDesc(level) {
     const el = document.getElementById("annoying-desc");

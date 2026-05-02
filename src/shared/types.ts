@@ -35,7 +35,7 @@ export interface AppState {
 
 export type ThemeMode    = 'dark' | 'light' | 'system';
 export type FontSize     = 'small' | 'medium' | 'large';
-export type AnnoyingLevel = 'off' | 'normal' | 'high';
+export type AnnoyingLevel = 'off' | 'normal' | 'high' | 'extra-high';
 
 export interface AppSettings {
   focusDuration:     number;

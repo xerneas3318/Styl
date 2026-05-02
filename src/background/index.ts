@@ -110,13 +110,15 @@ browser.alarms.onAlarm.addListener((alarm) => {
 
   if (alarm.name === ALARM_REMINDER) {
     if (appState.timer.isRunning && appState.timer.mode === 'focus') {
-      browser.notifications.create('styl-reminder', {
+      // Use a unique ID each time so Firefox doesn't silently skip a stale notification.
+      browser.notifications.create(`styl-reminder-${Date.now()}`, {
         type:    'basic',
         iconUrl: browser.runtime.getURL('icons/icon.svg'),
         title:   'Time to check in',
-        message: 'You\'ve been focusing for a while — still going, or time for a break?',
+        message: 'Still focusing? Consider taking a break if you need one.',
       });
     } else {
+      // Mode changed while alarm was pending — don't fire again.
       browser.alarms.clear(ALARM_REMINDER);
     }
   }
@@ -132,7 +134,7 @@ browser.alarms.onAlarm.addListener((alarm) => {
 });
 
 browser.notifications.onClicked.addListener((id) => {
-  if (id === 'styl-reminder') {
+  if (id.startsWith('styl-reminder')) {
     browser.action.openPopup().catch(() => {});
   }
 });
@@ -185,16 +187,11 @@ function updateBadge(): void {
 const ALARM_REMINDER = 'styl-reminder';
 
 // Create or clear the reminder alarm based on current state.
-// Only fires during active focus sessions with reminders enabled.
+// Always clears first so the 5-minute countdown restarts cleanly on focus start.
 function syncReminderAlarm(): void {
+  browser.alarms.clear(ALARM_REMINDER);
   if (settings.reminders && appState.timer.isRunning && appState.timer.mode === 'focus') {
-    browser.alarms.get(ALARM_REMINDER).then((alarm) => {
-      if (!alarm) {
-        browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
-      }
-    });
-  } else {
-    browser.alarms.clear(ALARM_REMINDER);
+    browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
   }
 }
 
