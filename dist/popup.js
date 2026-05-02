@@ -453,3 +453,4 @@
   connect();
   applyTheme();
 })();
+//# sourceMappingURL=popup.js.map

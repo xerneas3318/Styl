@@ -207,6 +207,25 @@ body {
   transform: translateY(-1px);
 }
 
+/* ── Annoying-mode floating proceed button ───────────────────────────────────── */
+
+.annoying-proceed {
+  position: fixed;
+  background: rgba(108,99,255,0.7);
+  border: 1px solid rgba(108,99,255,0.9);
+  border-radius: 50px;
+  color: white;
+  font-size: 0.88rem;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 10px 28px;
+  cursor: pointer;
+  transition: background 0.18s;
+  z-index: 10;
+  white-space: nowrap;
+}
+.annoying-proceed:hover { background: rgba(108,99,255,0.9); }
+
 /* ── Light theme overrides ───────────────────────────────────────────────────── */
 html.theme-light body {
   background: linear-gradient(135deg, #e8e4ff, #d0ccff, #e0ddff);
@@ -270,4 +289,12 @@ html.theme-light .hard-back {
 html.theme-light .hard-back:hover {
   background: rgba(0,0,0,0.12);
   color: #1a1830;
+}
+
+html.theme-light .annoying-proceed {
+  background: rgba(108,99,255,0.8);
+  border-color: rgba(108,99,255,0.95);
+}
+html.theme-light .annoying-proceed:hover {
+  background: rgba(108,99,255,0.95);
 }

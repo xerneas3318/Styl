@@ -16,6 +16,7 @@
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="appearance">Appearance</button>
     <button class="tab-btn" data-tab="timer">Timer</button>
+    <button class="tab-btn" data-tab="blocker">Blocker</button>
     <button class="tab-btn" data-tab="api">API</button>
   </div>
 
@@ -52,6 +53,33 @@
     <div class="field-group">
       <label class="field-label" for="long-break-dur">Long break (minutes)</label>
       <input id="long-break-dur" type="number" class="field-input narrow" min="1" max="90" value="15">
+    </div>
+
+    <div class="section-label" style="margin-top:20px">Reminders</div>
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">Break reminders</span>
+        <span class="field-hint">A notification every 5 minutes during focus asking if you want to continue or take a break.</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="reminders">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Blocker tab -->
+  <div class="tab-panel hidden" id="tab-blocker">
+    <div class="section-label">Bypass Protection</div>
+    <div class="field-group">
+      <label class="field-label">Annoying mode</label>
+      <div class="field-hint">Adds a second "are you sure?" screen after bypassing the block.</div>
+      <div class="chip-row" id="annoying-chips" style="margin-top:10px">
+        <button class="chip active" data-annoying="off">Off</button>
+        <button class="chip" data-annoying="normal">Normal</button>
+        <button class="chip" data-annoying="high">High</button>
+      </div>
+      <div class="field-hint" id="annoying-desc" style="margin-top:6px">Off — bypassing goes straight through.</div>
     </div>
   </div>
 

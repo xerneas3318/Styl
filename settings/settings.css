@@ -168,6 +168,65 @@ body {
   font-weight: 600;
 }
 
+/* ── Toggle switch ───────────────────────────────────────────────────────────── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.toggle-label {
+  font-size: 0.84rem;
+  color: rgba(255,255,255,0.8);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 22px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle-switch input:checked + .toggle-track {
+  background: rgba(108,99,255,0.55);
+  border-color: rgba(108,99,255,0.8);
+}
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(18px);
+  background: white;
+}
+
 /* ── Font size classes ───────────────────────────────────────────────────────── */
 html.size-small { font-size: 13px; }
 html.size-large { font-size: 17px; }
@@ -233,3 +292,15 @@ html.theme-light .chip.active {
   border-color: rgba(108,99,255,0.5);
   color: #5248cc;
 }
+
+html.theme-light .toggle-label { color: rgba(0,0,0,0.8); }
+html.theme-light .toggle-track {
+  background: rgba(0,0,0,0.08);
+  border-color: rgba(0,0,0,0.15);
+}
+html.theme-light .toggle-track::after { background: rgba(0,0,0,0.28); }
+html.theme-light .toggle-switch input:checked + .toggle-track {
+  background: rgba(108,99,255,0.45);
+  border-color: rgba(108,99,255,0.7);
+}
+html.theme-light .toggle-switch input:checked + .toggle-track::after { background: white; }

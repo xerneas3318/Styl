@@ -184,7 +184,9 @@
     theme: "dark",
     fontSize: "medium",
     apiKey: "",
-    timerSound: true
+    timerSound: true,
+    annoyingLevel: "off",
+    reminders: false
   };
   var tempBypass = /* @__PURE__ */ new Map();
   var ports = /* @__PURE__ */ new Set();
@@ -218,12 +220,14 @@
     if (savedSettings) settings = savedSettings;
     browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
     updateBadge();
+    syncReminderAlarm();
     await syncDnrRules();
   })();
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_COMPLETE) {
       const { state, prevMode } = onTimerComplete(appState.timer);
       appState.timer = state;
+      browser.alarms.clear(ALARM_REMINDER);
       if (settings.timerSound) {
         browser.notifications.create("styl-done", {
           type: "basic",
@@ -237,12 +241,30 @@
       updateBadge();
       syncDnrRules();
     }
+    if (alarm.name === ALARM_REMINDER) {
+      if (appState.timer.isRunning && appState.timer.mode === "focus") {
+        browser.notifications.create("styl-reminder", {
+          type: "basic",
+          iconUrl: browser.runtime.getURL("icons/icon.svg"),
+          title: "Time to check in",
+          message: "You've been focusing for a while \u2014 still going, or time for a break?"
+        });
+      } else {
+        browser.alarms.clear(ALARM_REMINDER);
+      }
+    }
     if (alarm.name === ALARM_BADGE_TICK) {
       updateBadge();
     }
     if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
       broadcast({ type: "stateUpdate", state: appState });
       updateBadge();
+    }
+  });
+  browser.notifications.onClicked.addListener((id) => {
+    if (id === "styl-reminder") {
+      browser.action.openPopup().catch(() => {
+      });
     }
   });
   browser.runtime.onConnect.addListener((port) => {
@@ -281,6 +303,18 @@
       browser.alarms.create(ALARM_BADGE_TICK, { delayInMinutes: secsUntilFlip / 60 });
     }
   }
+  var ALARM_REMINDER = "styl-reminder";
+  function syncReminderAlarm() {
+    if (settings.reminders && appState.timer.isRunning && appState.timer.mode === "focus") {
+      browser.alarms.get(ALARM_REMINDER).then((alarm) => {
+        if (!alarm) {
+          browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
+        }
+      });
+    } else {
+      browser.alarms.clear(ALARM_REMINDER);
+    }
+  }
   var getDnr = () => globalThis.chrome?.declarativeNetRequest;
   async function syncDnrRules() {
     if (IS_FIREFOX) return;
@@ -297,26 +331,27 @@
       for (const site of alwaysSites) {
         const exp = tempBypass.get(site);
         if (exp !== void 0 && now < exp) continue;
-        rules.push(makeDnrRule(id++, site, "always", gate, blockedUrl));
+        rules.push(makeDnrRule(id++, site, "always", gate, blockedUrl, settings.annoyingLevel));
       }
       if (appState.timer.isRunning && appState.timer.mode === "focus") {
         for (const site of focusSites) {
           const exp = tempBypass.get(site);
           if (exp !== void 0 && now < exp) continue;
-          rules.push(makeDnrRule(id++, site, "focus", gate, blockedUrl));
+          rules.push(makeDnrRule(id++, site, "focus", gate, blockedUrl, settings.annoyingLevel));
         }
       }
     }
     await dnr.updateDynamicRules({ removeRuleIds: removeIds, addRules: rules });
   }
-  function makeDnrRule(id, site, bm, gate, blockedUrl) {
+  function makeDnrRule(id, site, bm, gate, blockedUrl, annoyingLevel) {
+    const annoyingParam = annoyingLevel !== "off" ? `&annoying=${annoyingLevel}` : "";
     return {
       id,
       priority: 1,
       action: {
         type: "redirect",
         redirect: {
-          url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}`
+          url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}${annoyingParam}`
         }
       },
       condition: {
@@ -369,30 +404,35 @@
         broadcastState();
         await syncDnrRules();
         redirectBlockedTabs();
+        syncReminderAlarm();
         break;
       case "timerPause":
         appState.timer = pauseTimer(appState.timer);
         await persistState();
         broadcastState();
         syncDnrRules();
+        syncReminderAlarm();
         break;
       case "timerReset":
         appState.timer = resetTimer(appState.timer);
         await persistState();
         broadcastState();
         syncDnrRules();
+        syncReminderAlarm();
         break;
       case "timerSkip":
         appState.timer = skipTimer(appState.timer);
         await persistState();
         broadcastState();
         syncDnrRules();
+        syncReminderAlarm();
         break;
       case "timerSetMode":
         appState.timer = setTimerMode(appState.timer, msg.mode);
         await persistState();
         broadcastState();
         syncDnrRules();
+        syncReminderAlarm();
         break;
       case "timerAddMinute":
         appState.timer = addMinute(appState.timer);
@@ -452,6 +492,16 @@
         settings.timerSound = msg.enabled;
         await Storage.setSettings(settings);
         break;
+      case "setAnnoyingLevel":
+        settings.annoyingLevel = msg.level;
+        await Storage.setSettings(settings);
+        await syncDnrRules();
+        break;
+      case "setReminders":
+        settings.reminders = msg.enabled;
+        await Storage.setSettings(settings);
+        syncReminderAlarm();
+        break;
     }
   }
   function isPermBlocked(host) {
@@ -496,7 +546,7 @@
       }
       const info = getBlockInfo(host);
       if (info) {
-        const blockedUrl = browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(tab.url) + "&gate=" + gate + "&bm=" + info.bm;
+        const blockedUrl = browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(tab.url) + "&gate=" + gate + "&bm=" + info.bm + (settings.annoyingLevel !== "off" ? `&annoying=${settings.annoyingLevel}` : "");
         browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {
         });
       }
@@ -539,7 +589,7 @@
         if (!info) return {};
         const { gate } = appState.blockState;
         return {
-          redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(details.url) + "&gate=" + gate + "&bm=" + info.bm
+          redirectUrl: browser.runtime.getURL("blocked/blocked.html") + "?site=" + encodeURIComponent(host) + "&from=" + encodeURIComponent(details.url) + "&gate=" + gate + "&bm=" + info.bm + (settings.annoyingLevel !== "off" ? `&annoying=${settings.annoyingLevel}` : "")
         };
       },
       { urls: ["<all_urls>"], types: ["main_frame"] },
@@ -547,3 +597,4 @@
     );
   }
 })();
+//# sourceMappingURL=background.js.map

@@ -3,13 +3,14 @@ if (typeof browser === 'undefined') { var browser = chrome; } // eslint-disable-
 
 // Styl — blocked page
 
-const params  = new URLSearchParams(window.location.search);
-const site    = params.get('site') || 'This site';
+const params        = new URLSearchParams(window.location.search);
+const site          = params.get('site') || 'This site';
 // Firefox webRequest redirects carry the full originating URL in `from`.
 // Chrome declarativeNetRequest redirects do not; fall back to the site root.
-const fromUrl = params.get('from') || (site !== 'This site' ? 'https://' + site : '');
-const gate    = params.get('gate') || 'none'; // 'none' | 'confirm' | 'password'
-const bm      = params.get('bm')   || 'focus'; // 'focus' | 'always'
+const fromUrl       = params.get('from') || (site !== 'This site' ? 'https://' + site : '');
+const gate          = params.get('gate') || 'none'; // 'none' | 'confirm' | 'password'
+const bm            = params.get('bm')   || 'focus'; // 'focus' | 'always'
+const annoyingLevel = params.get('annoying') || 'off'; // 'off' | 'normal' | 'high'
 
 document.getElementById('site-name').textContent = site;
 document.getElementById('headline').textContent  =
@@ -49,11 +50,48 @@ if (bm === 'focus') {
   setInterval(refreshTimer, 1000);
 }
 
+// ── Annoying second gate ──────────────────────────────────────────────────
+
+function randomizeBtn(btn) {
+  const margin = 20;
+  const bw = btn.offsetWidth  || 140;
+  const bh = btn.offsetHeight || 42;
+  const x = margin + Math.floor(Math.random() * Math.max(0, window.innerWidth  - bw - margin * 2));
+  const y = margin + Math.floor(Math.random() * Math.max(0, window.innerHeight - bh - margin * 2));
+  btn.style.left = x + 'px';
+  btn.style.top  = y + 'px';
+}
+
+function showAnnoyingGate() {
+  document.getElementById('annoying-gate').classList.remove('hidden');
+  const btn = document.getElementById('annoying-proceed');
+  btn.classList.remove('hidden');
+  // Wait a frame so the button is laid out and offsetWidth/Height are available.
+  requestAnimationFrame(() => randomizeBtn(btn));
+
+  if (annoyingLevel === 'high') {
+    // High mode: button jumps to a new random spot every 500ms.
+    const interval = setInterval(() => randomizeBtn(btn), 500);
+    btn.addEventListener('click', () => { clearInterval(interval); goTo(fromUrl); });
+  } else {
+    btn.addEventListener('click', () => goTo(fromUrl));
+  }
+
+  document.getElementById('back-btn-annoying').addEventListener('click', goBack);
+}
+
 // ── Gate UI ───────────────────────────────────────────────────────────────
 
 if (gate === 'confirm') {
   document.getElementById('confirm-gate').classList.remove('hidden');
-  document.getElementById('visit-btn').addEventListener('click', () => goTo(fromUrl));
+  document.getElementById('visit-btn').addEventListener('click', () => {
+    if (annoyingLevel !== 'off') {
+      document.getElementById('confirm-gate').classList.add('hidden');
+      showAnnoyingGate();
+    } else {
+      goTo(fromUrl);
+    }
+  });
   document.getElementById('back-btn-confirm').addEventListener('click', goBack);
 
 } else if (gate === 'password') {
@@ -67,7 +105,12 @@ if (gate === 'confirm') {
     browser.runtime.sendMessage({ type: 'checkBypassPassword', password: entered })
       .then((resp) => {
         if (resp && resp.allowed) {
-          goTo(fromUrl);
+          if (annoyingLevel !== 'off') {
+            document.getElementById('pw-gate').classList.add('hidden');
+            showAnnoyingGate();
+          } else {
+            goTo(fromUrl);
+          }
         } else {
           pwError.classList.remove('hidden');
           pwInput.value = '';

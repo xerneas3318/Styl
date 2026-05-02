@@ -365,3 +365,4 @@
   initWallpaper();
   applyTheme();
 })();
+//# sourceMappingURL=newtab.js.map

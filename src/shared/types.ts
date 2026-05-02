@@ -33,8 +33,9 @@ export interface AppState {
   blockState: BlockState;
 }
 
-export type ThemeMode = 'dark' | 'light' | 'system';
-export type FontSize  = 'small' | 'medium' | 'large';
+export type ThemeMode    = 'dark' | 'light' | 'system';
+export type FontSize     = 'small' | 'medium' | 'large';
+export type AnnoyingLevel = 'off' | 'normal' | 'high';
 
 export interface AppSettings {
   focusDuration:     number;
@@ -44,6 +45,8 @@ export interface AppSettings {
   fontSize:          FontSize;
   apiKey:            string;
   timerSound:        boolean;
+  annoyingLevel:     AnnoyingLevel;
+  reminders:         boolean;
 }
 
 export type BgMessage =
@@ -64,7 +67,9 @@ export type BgMessage =
   | { type: 'checkBypassPassword'; password: string }
   | { type: 'getTimerState' }
   | { type: 'getBlockState' }
-  | { type: 'setTimerSound';       enabled: boolean };
+  | { type: 'setTimerSound';        enabled: boolean }
+  | { type: 'setAnnoyingLevel';     level: AnnoyingLevel }
+  | { type: 'setReminders';         enabled: boolean };
 
 export type UiMessage =
   | { type: 'stateUpdate'; state: AppState; event?: string }

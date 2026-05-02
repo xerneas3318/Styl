@@ -44,7 +44,10 @@
     longBreakDuration: 15 * 60,
     theme: "dark",
     fontSize: "medium",
-    apiKey: ""
+    apiKey: "",
+    timerSound: true,
+    annoyingLevel: "off",
+    reminders: false
   };
   async function init() {
     const saved = await Storage.getSettings();
@@ -63,6 +66,12 @@
     setVal("break-dur", String(Math.round((settings.breakDuration ?? 5 * 60) / 60)));
     setVal("long-break-dur", String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
     setVal("api-key", settings.apiKey ?? "");
+    const level = settings.annoyingLevel ?? "off";
+    document.querySelectorAll("[data-annoying]").forEach(
+      (el) => el.classList.toggle("active", el.dataset.annoying === level)
+    );
+    updateAnnoyingDesc(level);
+    document.getElementById("reminders").checked = settings.reminders ?? false;
   }
   function collectSettings() {
     return {
@@ -111,6 +120,38 @@
       });
     });
   }
+  function sendBg(msg) {
+    try {
+      const port = browser.runtime.connect({ name: "settings" });
+      port.postMessage(msg);
+      port.disconnect();
+    } catch {
+    }
+  }
+  var ANNOYING_DESCS = {
+    off: "Off \u2014 bypassing goes straight through.",
+    normal: "Normal \u2014 a second screen appears with the proceed button in a random spot.",
+    high: "High \u2014 the proceed button jumps to a new position every 0.5 seconds."
+  };
+  function updateAnnoyingDesc(level) {
+    const el = document.getElementById("annoying-desc");
+    if (el) el.textContent = ANNOYING_DESCS[level] ?? "";
+  }
+  document.querySelectorAll("[data-annoying]").forEach(
+    (el) => el.addEventListener("click", () => {
+      const level = el.dataset.annoying;
+      settings.annoyingLevel = level;
+      document.querySelectorAll("[data-annoying]").forEach(
+        (e) => e.classList.toggle("active", e.dataset.annoying === level)
+      );
+      updateAnnoyingDesc(level);
+      sendBg({ type: "setAnnoyingLevel", level });
+    })
+  );
+  document.getElementById("reminders").addEventListener("change", () => {
+    settings.reminders = document.getElementById("reminders").checked;
+    sendBg({ type: "setReminders", enabled: settings.reminders });
+  });
   document.getElementById("save-btn").addEventListener("click", save);
   document.querySelectorAll("[data-theme]").forEach(
     (el) => el.addEventListener("click", () => {
@@ -135,3 +176,4 @@
   initTabs();
   init();
 })();
+//# sourceMappingURL=settings.js.map

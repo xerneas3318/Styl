@@ -1,5 +1,5 @@
 import { Storage } from '../shared/storage';
-import type { AppState, AppSettings, TimerMode, BlockGate, BlockPresets, BgMessage } from '../shared/types';
+import type { AppState, AppSettings, TimerMode, BlockGate, BlockPresets, BgMessage, AnnoyingLevel } from '../shared/types';
 
 import {
   defaultTimerState, getTimeRemaining,
@@ -36,6 +36,8 @@ let settings: AppSettings = {
   fontSize:          'medium',
   apiKey:            '',
   timerSound:        true,
+  annoyingLevel:     'off',
+  reminders:         false,
 };
 
 // Per-site temporary bypass: site → expiry timestamp (ms)
@@ -79,6 +81,7 @@ const ports = new Set<browser.runtime.Port>();
 
   browser.alarms.create(ALARM_KEEPALIVE, { periodInMinutes: 0.4 });
   updateBadge();
+  syncReminderAlarm(); // restore reminder alarm if running focus with reminders on
   await syncDnrRules(); // Chrome: restore rules after service worker restart
 })();
 
@@ -86,6 +89,7 @@ browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_COMPLETE) {
     const { state, prevMode } = onTimerComplete(appState.timer);
     appState.timer = state;
+    browser.alarms.clear(ALARM_REMINDER); // focus ended, no more reminders
 
     if (settings.timerSound) {
       browser.notifications.create('styl-done', {
@@ -104,6 +108,19 @@ browser.alarms.onAlarm.addListener((alarm) => {
     syncDnrRules(); // focus timer ended — remove focus-site rules on Chrome
   }
 
+  if (alarm.name === ALARM_REMINDER) {
+    if (appState.timer.isRunning && appState.timer.mode === 'focus') {
+      browser.notifications.create('styl-reminder', {
+        type:    'basic',
+        iconUrl: browser.runtime.getURL('icons/icon.svg'),
+        title:   'Time to check in',
+        message: 'You\'ve been focusing for a while — still going, or time for a break?',
+      });
+    } else {
+      browser.alarms.clear(ALARM_REMINDER);
+    }
+  }
+
   if (alarm.name === ALARM_BADGE_TICK) {
     updateBadge();
   }
@@ -111,6 +128,12 @@ browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_KEEPALIVE && appState.timer.isRunning) {
     broadcast({ type: 'stateUpdate', state: appState });
     updateBadge();
+  }
+});
+
+browser.notifications.onClicked.addListener((id) => {
+  if (id === 'styl-reminder') {
+    browser.action.openPopup().catch(() => {});
   }
 });
 
@@ -157,6 +180,24 @@ function updateBadge(): void {
   }
 }
 
+// ── Reminder alarm ───────────────────────────────────────────────────────────
+
+const ALARM_REMINDER = 'styl-reminder';
+
+// Create or clear the reminder alarm based on current state.
+// Only fires during active focus sessions with reminders enabled.
+function syncReminderAlarm(): void {
+  if (settings.reminders && appState.timer.isRunning && appState.timer.mode === 'focus') {
+    browser.alarms.get(ALARM_REMINDER).then((alarm) => {
+      if (!alarm) {
+        browser.alarms.create(ALARM_REMINDER, { delayInMinutes: 5, periodInMinutes: 5 });
+      }
+    });
+  } else {
+    browser.alarms.clear(ALARM_REMINDER);
+  }
+}
+
 // ── Chrome: declarativeNetRequest blocking ───────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,13 +221,13 @@ async function syncDnrRules(): Promise<void> {
     for (const site of alwaysSites) {
       const exp = tempBypass.get(site);
       if (exp !== undefined && now < exp) continue;
-      rules.push(makeDnrRule(id++, site, 'always', gate, blockedUrl));
+      rules.push(makeDnrRule(id++, site, 'always', gate, blockedUrl, settings.annoyingLevel));
     }
     if (appState.timer.isRunning && appState.timer.mode === 'focus') {
       for (const site of focusSites) {
         const exp = tempBypass.get(site);
         if (exp !== undefined && now < exp) continue;
-        rules.push(makeDnrRule(id++, site, 'focus', gate, blockedUrl));
+        rules.push(makeDnrRule(id++, site, 'focus', gate, blockedUrl, settings.annoyingLevel));
       }
     }
   }
@@ -195,15 +236,16 @@ async function syncDnrRules(): Promise<void> {
 }
 
 function makeDnrRule(
-  id: number, site: string, bm: 'always' | 'focus', gate: string, blockedUrl: string,
+  id: number, site: string, bm: 'always' | 'focus', gate: string, blockedUrl: string, annoyingLevel: AnnoyingLevel,
 ): object {
+  const annoyingParam = annoyingLevel !== 'off' ? `&annoying=${annoyingLevel}` : '';
   return {
     id,
     priority: 1,
     action: {
       type: 'redirect',
       redirect: {
-        url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}`,
+        url: `${blockedUrl}?site=${encodeURIComponent(site)}&gate=${encodeURIComponent(gate)}&bm=${bm}${annoyingParam}`,
       },
     },
     condition: {
@@ -263,30 +305,35 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       await persistState(); broadcastState();
       await syncDnrRules(); // add focus-site rules on Chrome
       redirectBlockedTabs();
+      syncReminderAlarm();
       break;
 
     case 'timerPause':
       appState.timer = pauseTimer(appState.timer);
       await persistState(); broadcastState();
       syncDnrRules(); // focus sites no longer active on Chrome
+      syncReminderAlarm();
       break;
 
     case 'timerReset':
       appState.timer = resetTimer(appState.timer);
       await persistState(); broadcastState();
       syncDnrRules();
+      syncReminderAlarm();
       break;
 
     case 'timerSkip':
       appState.timer = skipTimer(appState.timer);
       await persistState(); broadcastState();
       syncDnrRules(); // mode may have changed
+      syncReminderAlarm();
       break;
 
     case 'timerSetMode':
       appState.timer = setTimerMode(appState.timer, msg.mode as TimerMode);
       await persistState(); broadcastState();
       syncDnrRules();
+      syncReminderAlarm();
       break;
 
     case 'timerAddMinute':
@@ -350,6 +397,18 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       settings.timerSound = msg.enabled;
       await Storage.setSettings(settings);
       break;
+
+    case 'setAnnoyingLevel':
+      settings.annoyingLevel = msg.level;
+      await Storage.setSettings(settings);
+      await syncDnrRules(); // update Chrome DNR redirect URLs
+      break;
+
+    case 'setReminders':
+      settings.reminders = msg.enabled;
+      await Storage.setSettings(settings);
+      syncReminderAlarm();
+      break;
   }
 }
 
@@ -406,7 +465,8 @@ async function redirectBlockedTabs(): Promise<void> {
         + '?site=' + encodeURIComponent(host)
         + '&from=' + encodeURIComponent(tab.url)
         + '&gate=' + gate
-        + '&bm='   + info.bm;
+        + '&bm='   + info.bm
+        + (settings.annoyingLevel !== 'off' ? `&annoying=${settings.annoyingLevel}` : '');
       browser.tabs.update(tab.id, { url: blockedUrl }).catch(() => {});
     }
   }
@@ -460,7 +520,8 @@ if (IS_FIREFOX) {
           '?site=' + encodeURIComponent(host) +
           '&from=' + encodeURIComponent(details.url) +
           '&gate=' + gate +
-          '&bm='   + info.bm,
+          '&bm='   + info.bm +
+          (settings.annoyingLevel !== 'off' ? `&annoying=${settings.annoyingLevel}` : ''),
       };
     },
     { urls: ['<all_urls>'], types: ['main_frame'] },

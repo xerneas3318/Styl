@@ -1,10 +1,11 @@
-import type { AppSettings, ThemeMode, FontSize } from '../shared/types';
+import type { AppSettings, ThemeMode, FontSize, AnnoyingLevel } from '../shared/types';
 import { Storage } from '../shared/storage';
 import { applyTheme, applyThemeFromSettings } from '../shared/theme';
 
 let settings: AppSettings = {
   focusDuration: 25 * 60, breakDuration: 5 * 60, longBreakDuration: 15 * 60,
-  theme: 'dark', fontSize: 'medium', apiKey: '',
+  theme: 'dark', fontSize: 'medium', apiKey: '', timerSound: true,
+  annoyingLevel: 'off', reminders: false,
 };
 
 async function init() {
@@ -29,6 +30,14 @@ function populateForm() {
   setVal('long-break-dur', String(Math.round((settings.longBreakDuration ?? 15 * 60) / 60)));
   // API
   setVal('api-key', settings.apiKey ?? '');
+  // Blocker — annoying level chips
+  const level = settings.annoyingLevel ?? 'off';
+  document.querySelectorAll('[data-annoying]').forEach((el) =>
+    (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.annoying === level)
+  );
+  updateAnnoyingDesc(level);
+  // Timer — reminders
+  (document.getElementById('reminders') as HTMLInputElement).checked = settings.reminders ?? false;
 }
 
 function collectSettings(): AppSettings {
@@ -80,6 +89,43 @@ function initTabs() {
     });
   });
 }
+
+function sendBg(msg: object) {
+  try {
+    const port = browser.runtime.connect({ name: 'settings' });
+    port.postMessage(msg);
+    port.disconnect();
+  } catch { /* ok */ }
+}
+
+const ANNOYING_DESCS: Record<string, string> = {
+  off:    'Off — bypassing goes straight through.',
+  normal: 'Normal — a second screen appears with the proceed button in a random spot.',
+  high:   'High — the proceed button jumps to a new position every 0.5 seconds.',
+};
+function updateAnnoyingDesc(level: string) {
+  const el = document.getElementById('annoying-desc');
+  if (el) el.textContent = ANNOYING_DESCS[level] ?? '';
+}
+
+// Annoying level chips — take effect immediately
+document.querySelectorAll('[data-annoying]').forEach((el) =>
+  el.addEventListener('click', () => {
+    const level = (el as HTMLElement).dataset.annoying as AnnoyingLevel;
+    settings.annoyingLevel = level;
+    document.querySelectorAll('[data-annoying]').forEach((e) =>
+      (e as HTMLElement).classList.toggle('active', (e as HTMLElement).dataset.annoying === level)
+    );
+    updateAnnoyingDesc(level);
+    sendBg({ type: 'setAnnoyingLevel', level });
+  })
+);
+
+// Reminders toggle — takes effect immediately
+document.getElementById('reminders')!.addEventListener('change', () => {
+  settings.reminders = (document.getElementById('reminders') as HTMLInputElement).checked;
+  sendBg({ type: 'setReminders', enabled: settings.reminders });
+});
 
 // Wire events
 document.getElementById('save-btn')!.addEventListener('click', save);

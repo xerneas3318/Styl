@@ -44,7 +44,16 @@
 
     <!-- Hard block (gate=none): just go back -->
     <button class="back-btn hard-back hidden" id="back-btn-hard">← Go back</button>
+
+    <!-- Annoying second-gate: shown after first bypass if annoying mode is on -->
+    <div class="gate annoying-gate hidden" id="annoying-gate">
+      <p class="gate-label">Are you <em>really</em> sure about this?</p>
+      <button class="gate-btn secondary" id="back-btn-annoying">← Actually, stay focused</button>
+    </div>
   </div>
+
+  <!-- Floating proceed button — JS sets a random position -->
+  <button class="annoying-proceed hidden" id="annoying-proceed">Proceed anyway</button>
 
   <script src="blocked.js"></script>
 </body>
