@@ -240,6 +240,7 @@
       broadcast({ type: "stateUpdate", state: appState, event: "timerComplete" });
       updateBadge();
       syncDnrRules();
+      unblockFreedTabs();
     }
     if (alarm.name === ALARM_REMINDER) {
       if (appState.timer.isRunning && appState.timer.mode === "focus") {
@@ -406,6 +407,7 @@
         await persistState();
         broadcastState();
         syncDnrRules();
+        unblockFreedTabs();
         syncReminderAlarm();
         break;
       case "timerReset":
@@ -413,6 +415,7 @@
         await persistState();
         broadcastState();
         syncDnrRules();
+        unblockFreedTabs();
         syncReminderAlarm();
         break;
       case "timerSkip":
@@ -420,6 +423,7 @@
         await persistState();
         broadcastState();
         syncDnrRules();
+        unblockFreedTabs();
         syncReminderAlarm();
         break;
       case "timerSetMode":
@@ -427,6 +431,7 @@
         await persistState();
         broadcastState();
         syncDnrRules();
+        unblockFreedTabs();
         syncReminderAlarm();
         break;
       case "timerAddMinute":

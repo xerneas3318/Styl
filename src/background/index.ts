@@ -105,7 +105,8 @@ browser.alarms.onAlarm.addListener((alarm) => {
     persistState();
     broadcast({ type: 'stateUpdate', state: appState, event: 'timerComplete' });
     updateBadge();
-    syncDnrRules(); // focus timer ended — remove focus-site rules on Chrome
+    syncDnrRules(); // remove focus-site rules on Chrome
+    unblockFreedTabs(); // navigate blocked tabs back now that focus is over
   }
 
   if (alarm.name === ALARM_REMINDER) {
@@ -308,7 +309,8 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
     case 'timerPause':
       appState.timer = pauseTimer(appState.timer);
       await persistState(); broadcastState();
-      syncDnrRules(); // focus sites no longer active on Chrome
+      syncDnrRules();
+      unblockFreedTabs(); // focus paused — release focus-only blocked tabs
       syncReminderAlarm();
       break;
 
@@ -316,13 +318,15 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.timer = resetTimer(appState.timer);
       await persistState(); broadcastState();
       syncDnrRules();
+      unblockFreedTabs(); // timer reset — release focus-only blocked tabs
       syncReminderAlarm();
       break;
 
     case 'timerSkip':
       appState.timer = skipTimer(appState.timer);
       await persistState(); broadcastState();
-      syncDnrRules(); // mode may have changed
+      syncDnrRules();
+      unblockFreedTabs(); // mode changed — release tabs if no longer blocked
       syncReminderAlarm();
       break;
 
@@ -330,6 +334,7 @@ async function handleMessage(msg: BgMessage, _port: browser.runtime.Port): Promi
       appState.timer = setTimerMode(appState.timer, msg.mode as TimerMode);
       await persistState(); broadcastState();
       syncDnrRules();
+      unblockFreedTabs();
       syncReminderAlarm();
       break;
 
