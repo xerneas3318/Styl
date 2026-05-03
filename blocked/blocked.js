@@ -10,7 +10,8 @@ const site          = params.get('site') || 'This site';
 const fromUrl       = params.get('from') || (site !== 'This site' ? 'https://' + site : '');
 const gate          = params.get('gate') || 'none'; // 'none' | 'confirm' | 'password'
 const bm            = params.get('bm')   || 'focus'; // 'focus' | 'always'
-const annoyingLevel = params.get('annoying') || 'off'; // 'off' | 'normal' | 'high'
+// annoyingLevel is fetched live from background on each proceed attempt
+// so changing the setting takes effect immediately on the already-open blocked page.
 
 document.getElementById('site-name').textContent = site;
 document.getElementById('headline').textContent  =
@@ -62,16 +63,16 @@ function randomizeBtn(btn) {
   btn.style.top  = y + 'px';
 }
 
-function showAnnoyingGate() {
+function showAnnoyingGate(level) {
   document.getElementById('annoying-gate').classList.remove('hidden');
   const btn = document.getElementById('annoying-proceed');
   btn.classList.remove('hidden');
   // Wait a frame so the button is laid out and offsetWidth/Height are available.
   requestAnimationFrame(() => randomizeBtn(btn));
 
-  if (annoyingLevel === 'high' || annoyingLevel === 'extra-high') {
+  if (level === 'high' || level === 'extra-high') {
     // High: jumps every 1s. Extra-high: jumps every 500ms.
-    const ms = annoyingLevel === 'extra-high' ? 500 : 1000;
+    const ms = level === 'extra-high' ? 500 : 1000;
     const interval = setInterval(() => randomizeBtn(btn), ms);
     btn.addEventListener('click', () => { clearInterval(interval); goTo(fromUrl); });
   } else {
@@ -81,17 +82,28 @@ function showAnnoyingGate() {
   document.getElementById('back-btn-annoying').addEventListener('click', goBack);
 }
 
+// Fetch the live annoying level from background, then either navigate or show the second gate.
+// Querying at click-time means changing the setting takes effect on the already-open page.
+function proceedWithAnnoyingCheck(hideEl) {
+  browser.runtime.sendMessage({ type: 'getBlockState' })
+    .then((resp) => {
+      const level = (resp && resp.annoyingLevel) || 'off';
+      if (level !== 'off') {
+        if (hideEl) hideEl.classList.add('hidden');
+        showAnnoyingGate(level);
+      } else {
+        goTo(fromUrl);
+      }
+    })
+    .catch(() => goTo(fromUrl));
+}
+
 // ── Gate UI ───────────────────────────────────────────────────────────────
 
 if (gate === 'confirm') {
   document.getElementById('confirm-gate').classList.remove('hidden');
   document.getElementById('visit-btn').addEventListener('click', () => {
-    if (annoyingLevel !== 'off') {
-      document.getElementById('confirm-gate').classList.add('hidden');
-      showAnnoyingGate();
-    } else {
-      goTo(fromUrl);
-    }
+    proceedWithAnnoyingCheck(document.getElementById('confirm-gate'));
   });
   document.getElementById('back-btn-confirm').addEventListener('click', goBack);
 
@@ -106,12 +118,7 @@ if (gate === 'confirm') {
     browser.runtime.sendMessage({ type: 'checkBypassPassword', password: entered })
       .then((resp) => {
         if (resp && resp.allowed) {
-          if (annoyingLevel !== 'off') {
-            document.getElementById('pw-gate').classList.add('hidden');
-            showAnnoyingGate();
-          } else {
-            goTo(fromUrl);
-          }
+          proceedWithAnnoyingCheck(document.getElementById('pw-gate'));
         } else {
           pwError.classList.remove('hidden');
           pwInput.value = '';

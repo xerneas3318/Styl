@@ -262,7 +262,7 @@ browser.runtime.onMessage.addListener(
       return false;
     }
     if (msg.type === 'getBlockState') {
-      sendResponse({ blockState: appState.blockState });
+      sendResponse({ blockState: appState.blockState, annoyingLevel: settings.annoyingLevel });
       return false;
     }
     if (msg.type === 'checkBypassPassword') {
